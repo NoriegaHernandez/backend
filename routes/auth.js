@@ -768,12 +768,12 @@ if (userData.tipo_usuario === 'cliente') {
       .input('id_usuario', sql.Int, req.user.id)
       .query(`
         SELECT 
-          m.id_suscripcion,      // ✅ Corregido
-          m.tipo_plan,           // ✅ Corregido
+          m.id_suscripcion,
+          m.tipo_plan,
           m.fecha_inicio,
-          m.fecha_fin,           // ✅ Corregido
+          m.fecha_fin,
           m.estado,
-          m.precio_pagado,       // Columnas adicionales disponibles
+          m.precio_pagado,
           m.metodo_pago
         FROM 
           Suscripciones m
@@ -781,11 +781,11 @@ if (userData.tipo_usuario === 'cliente') {
           m.id_usuario = @id_usuario AND
           m.estado = 'activa'
         ORDER BY 
-          m.fecha_fin DESC       // ✅ Corregido
+          m.fecha_fin DESC
       `);
     
     if (membershipResult.recordset.length > 0) {
-      // También mapeamos los nombres de las propiedades a los esperados en el frontend
+      // Mapeamos los nombres de las propiedades a los esperados en el frontend
       userData.membresia = {
         id_membresia: membershipResult.recordset[0].id_suscripcion,
         tipo: membershipResult.recordset[0].tipo_plan,
