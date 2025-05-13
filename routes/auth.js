@@ -761,34 +761,46 @@ router.get('/me', authMiddleware, async (req, res) => {
     const userData = result.recordset[0];
     
     // Si es cliente, obtener información de membresía si existe
-    if (userData.tipo_usuario === 'cliente') {
-      try {
-        const membershipResult = await pool.request()
-          .input('id_usuario', sql.Int, req.user.id)
-          .query(`
-            SELECT 
-              m.id_membresia,
-              m.tipo,
-              m.fecha_inicio,
-              m.fecha_vencimiento,
-              m.estado
-            FROM 
-              Suscripciones m
-            WHERE 
-              m.id_usuario = @id_usuario AND
-              m.estado = 'activa'
-            ORDER BY 
-              m.fecha_vencimiento DESC
-          `);
-        
-        if (membershipResult.recordset.length > 0) {
-          userData.membresia = membershipResult.recordset[0];
-        }
-      } catch (membershipError) {
-        console.error('Error al obtener membresía:', membershipError);
-        // No interrumpir la respuesta si falla esta parte
-      }
+   // Si es cliente, obtener información de membresía si existe
+if (userData.tipo_usuario === 'cliente') {
+  try {
+    const membershipResult = await pool.request()
+      .input('id_usuario', sql.Int, req.user.id)
+      .query(`
+        SELECT 
+          m.id_suscripcion,      // ✅ Corregido
+          m.tipo_plan,           // ✅ Corregido
+          m.fecha_inicio,
+          m.fecha_fin,           // ✅ Corregido
+          m.estado,
+          m.precio_pagado,       // Columnas adicionales disponibles
+          m.metodo_pago
+        FROM 
+          Suscripciones m
+        WHERE 
+          m.id_usuario = @id_usuario AND
+          m.estado = 'activa'
+        ORDER BY 
+          m.fecha_fin DESC       // ✅ Corregido
+      `);
+    
+    if (membershipResult.recordset.length > 0) {
+      // También mapeamos los nombres de las propiedades a los esperados en el frontend
+      userData.membresia = {
+        id_membresia: membershipResult.recordset[0].id_suscripcion,
+        tipo: membershipResult.recordset[0].tipo_plan,
+        fecha_inicio: membershipResult.recordset[0].fecha_inicio,
+        fecha_vencimiento: membershipResult.recordset[0].fecha_fin,
+        estado: membershipResult.recordset[0].estado,
+        precio_pagado: membershipResult.recordset[0].precio_pagado,
+        metodo_pago: membershipResult.recordset[0].metodo_pago
+      };
     }
+  } catch (membershipError) {
+    console.error('Error al obtener membresía:', membershipError);
+    // No interrumpir la respuesta si falla esta parte
+  }
+}
     
     // Si es entrenador, obtener información adicional
     if (userData.tipo_usuario === 'coach') {
