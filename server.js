@@ -18,13 +18,15 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
+// Middleware para CORS
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'https://backend-h016.onrender.com/api', // Adaptar a tu URL de Vite
+  origin: [
+    'http://localhost:5173',  // Para desarrollo local
+    'https://frontend-e7n0.onrender.com'  // Tu frontend en Render
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization']
 }));
-app.use(express.json());
-
 // Probar conexión a la base de datos
 connectDB()
   .then(() => console.log('Conexión a la base de datos establecida'))
