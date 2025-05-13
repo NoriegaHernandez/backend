@@ -19,7 +19,7 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173', // Adaptar a tu URL de Vite
+  origin: process.env.FRONTEND_URL || 'https://backend-h016.onrender.com/api', // Adaptar a tu URL de Vite
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization']
 }));
