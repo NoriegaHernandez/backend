@@ -35,20 +35,35 @@ router.post('/test-register', async (req, res) => {
   }
 });
 
+// Modificación solo para la ruta de login (las demás rutas quedan igual)
 
-// En tu ruta de login
 router.post('/login', async (req, res) => {
-    console.log('Solicitud de login recibida. Headers:', req.headers);
+  console.log('Intento de login recibido');
+  console.log('Headers completos:', req.headers);
   console.log('Cuerpo completo de la solicitud:', req.body);
   
-  // Si req.body es undefined, retorna un error claro
+  // Manejo defensivo para req.body indefinido
   if (!req.body) {
-    return res.status(400).json({ message: 'Cuerpo de la solicitud vacío o mal formateado' });
+    return res.status(400).json({ 
+      message: 'Cuerpo de la solicitud vacío o mal formateado',
+      error: 'missing_body'
+    });
   }
   
-  const { email, password } = req.body || {};
+  // Extraer email y password con manejo seguro
+  const email = req.body.email || '';
+  const password = req.body.password || '';
   
-try {
+  // Validaciones básicas
+  if (!email || !password) {
+    return res.status(400).json({ 
+      message: 'Se requieren email y contraseña',
+      error: 'missing_credentials',
+      received: { hasEmail: !!email, hasPassword: !!password }
+    });
+  }
+  
+  try {
     const pool = await connectDB();
     
     // Buscar usuario por email
@@ -126,12 +141,21 @@ try {
       }
     };
     
+    // Verificar que JWT_SECRET esté definido
+    if (!process.env.JWT_SECRET) {
+      console.error('Error crítico: JWT_SECRET no está definido en variables de entorno');
+      return res.status(500).json({ message: 'Error de configuración del servidor' });
+    }
+    
     jwt.sign(
       payload,
       process.env.JWT_SECRET,
       { expiresIn: '24h' },
       (err, token) => {
-        if (err) throw err;
+        if (err) {
+          console.error('Error al generar JWT:', err);
+          return res.status(500).json({ message: 'Error al generar token de autenticación' });
+        }
         
         // Actualizar fecha del último login (opcional)
         pool.request()
@@ -156,15 +180,12 @@ try {
     );
   } catch (error) {
     console.error('Error detallado en el login:', error);
-    // Devolver más información para depuración (solo en desarrollo)
-    if (process.env.NODE_ENV !== 'production') {
-      return res.status(500).json({ 
-        message: 'Error en el servidor', 
-        details: error.message,
-        stack: error.stack 
-      });
-    }
-    res.status(500).json({ message: 'Error en el servidor' });
+    console.error('Stack trace:', error.stack);
+    
+    res.status(500).json({ 
+      message: 'Error en el servidor', 
+      details: error.message 
+    });
   }
 });
 
