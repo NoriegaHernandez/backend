@@ -1,0 +1,28 @@
+0 verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+1 info using npm@10.8.2
+2 info using node@v20.18.0
+3 silly config load:file:C:\Program Files\nodejs\node_modules\npm\npmrc
+4 silly config load:file:C:\Users\norie\gym-app\server\.npmrc
+5 silly config load:file:C:\Users\norie\.npmrc
+6 silly config load:file:C:\Users\norie\gym-app\server\UsersnorieAppDataRoamingnpm\etc\npmrc
+7 verbose title npm init
+8 verbose argv "init" "--yes"
+9 verbose logfile logs-max:10 dir:C:\Users\norie\gym-app\server\UsersnorieAppDataRoamingnpm-cache\_logs\2025-04-29T21_37_14_591Z-
+10 verbose logfile C:\Users\norie\gym-app\server\UsersnorieAppDataRoamingnpm-cache\_logs\2025-04-29T21_37_14_591Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly package data {
+12 silly package data   name: 'server',
+12 silly package data   version: '1.0.0',
+12 silly package data   main: 'index.js',
+12 silly package data   scripts: { test: 'echo "Error: no test specified" && exit 1' },
+12 silly package data   keywords: [],
+12 silly package data   author: '',
+12 silly package data   license: 'ISC',
+12 silly package data   description: ''
+12 silly package data }
+13 verbose cwd C:\Users\norie\gym-app\server
+14 verbose os Windows_NT 10.0.22631
+15 verbose node v20.18.0
+16 verbose npm  v10.8.2
+17 verbose exit 0
+18 info ok
