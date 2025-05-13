@@ -1,7 +1,7 @@
 // server/routes/auth.js - Rutas de autenticación
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { connectDB, sql } = require('../config/db');
 const nodemailer = require('nodemailer');
