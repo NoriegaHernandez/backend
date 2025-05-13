@@ -35,18 +35,20 @@ router.post('/test-register', async (req, res) => {
   }
 });
 
-// Modifica la función de login para que funcione con contraseñas antiguas y nuevas
+
+// En tu ruta de login
 router.post('/login', async (req, res) => {
-  console.log('Intento de login para:', req.body.email);
+    console.log('Solicitud de login recibida. Headers:', req.headers);
+  console.log('Cuerpo completo de la solicitud:', req.body);
   
-  const { email, password } = req.body;
-  
-  // Validaciones básicas
-  if (!email || !password) {
-    return res.status(400).json({ message: 'Se requieren email y contraseña' });
+  // Si req.body es undefined, retorna un error claro
+  if (!req.body) {
+    return res.status(400).json({ message: 'Cuerpo de la solicitud vacío o mal formateado' });
   }
   
-  try {
+  const { email, password } = req.body || {};
+  
+try {
     const pool = await connectDB();
     
     // Buscar usuario por email
@@ -153,7 +155,15 @@ router.post('/login', async (req, res) => {
       }
     );
   } catch (error) {
-    console.error('Error en el login:', error);
+    console.error('Error detallado en el login:', error);
+    // Devolver más información para depuración (solo en desarrollo)
+    if (process.env.NODE_ENV !== 'production') {
+      return res.status(500).json({ 
+        message: 'Error en el servidor', 
+        details: error.message,
+        stack: error.stack 
+      });
+    }
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });

@@ -19,6 +19,9 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 // Middleware para CORS
+app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // Añade esto también
+
 app.use(cors({
   origin: [
     'http://localhost:5173',  // Para desarrollo local
@@ -31,6 +34,7 @@ app.use(cors({
 connectDB()
   .then(() => console.log('Conexión a la base de datos establecida'))
   .catch(err => console.error('Error de conexión a la base de datos:', err));
+
 
 // Rutas
 app.use('/api/auth', authRoutes);
