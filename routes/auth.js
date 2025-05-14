@@ -759,8 +759,7 @@ router.get('/me', authMiddleware, async (req, res) => {
     
     // Usuario encontrado, enviar datos (sin la contraseña)
     const userData = result.recordset[0];
-    
-    // Si es cliente, obtener información de membresía si existe
+
    // Si es cliente, obtener información de membresía si existe
 if (userData.tipo_usuario === 'cliente') {
   try {
