@@ -1,4 +1,5 @@
 // server/middleware/auth.js - Middleware para verificar tokens JWT
+//hOLA MUNDO
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
