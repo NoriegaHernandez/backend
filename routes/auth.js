@@ -359,6 +359,8 @@ router.post('/register', async (req, res) => {
 
 // 5. Ruta para verificar el email
 router.get('/verify-email/:token', async (req, res) => {
+  console.log('SERVIDOR: Recibida solicitud para verificar email con token:', req.params.token.substring(0, 10) + '...');
+  console.log('SERVIDOR: URL completa:', req.originalUrl);
   const { token } = req.params;
   
   try {
