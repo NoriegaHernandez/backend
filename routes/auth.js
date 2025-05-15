@@ -992,190 +992,728 @@
 
 
 
+// server/routes/auth.js - Rutas de autenticación
+const express = require('express');
+const router = express.Router();
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { connectDB, sql } = require('../config/db');
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 
-// client/src/context/AuthContext.jsx
-import React, { createContext, useState, useEffect } from 'react';
-import api from '../services/api';
+// Middleware para verificar token
+const authMiddleware = require('../middleware/auth');
 
-// Crear contexto
-export const AuthContext = createContext();
+router.post('/test-register', async (req, res) => {
+  console.log('Datos recibidos en test-register:', req.body);
+  
+  try {
+    const { nombre, email, password } = req.body;
+    
+    if (!nombre || !email || !password) {
+      return res.status(400).json({ message: 'Datos incompletos' });
+    }
+    
+    res.status(200).json({ 
+      success: true, 
+      message: 'Solicitud de registro recibida correctamente',
+      userData: { nombre, email }
+    });
+  } catch (error) {
+    console.error('Error en test-register:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error en la prueba',
+      error: error.message
+    });
+  }
+});
 
-// Proveedor del contexto
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+// Modificación solo para la ruta de login (las demás rutas quedan igual)
 
-  // Verificar si hay un token al cargar
-  useEffect(() => {
-    const checkLoggedIn = async () => {
-      setLoading(true);
+router.post('/login', async (req, res) => {
+  console.log('Intento de login recibido');
+  console.log('Headers completos:', req.headers);
+  console.log('Cuerpo completo de la solicitud:', req.body);
+  
+  // Manejo defensivo para req.body indefinido
+  if (!req.body) {
+    return res.status(400).json({ 
+      message: 'Cuerpo de la solicitud vacío o mal formateado',
+      error: 'missing_body'
+    });
+  }
+  
+  // Extraer email y password con manejo seguro
+  const email = req.body.email || '';
+  const password = req.body.password || '';
+  
+  // Validaciones básicas
+  if (!email || !password) {
+    return res.status(400).json({ 
+      message: 'Se requieren email y contraseña',
+      error: 'missing_credentials',
+      received: { hasEmail: !!email, hasPassword: !!password }
+    });
+  }
+  
+  try {
+    const pool = await connectDB();
+    
+    // Buscar usuario por email
+    const result = await pool.request()
+      .input('email', sql.VarChar, email)
+      .query(`
+        SELECT u.id_usuario, u.nombre, u.email, u.contraseña, u.tipo_usuario, u.estado
+        FROM Usuarios u
+        WHERE u.email = @email
+      `);
+    
+    const user = result.recordset[0];
+    
+    // Verificar si el usuario existe
+    if (!user) {
+      console.log('Usuario no encontrado en la base de datos');
+      return res.status(401).json({ message: 'Credenciales incorrectas' });
+    }
+    
+    // Verificar si la cuenta ha sido verificada
+    if (user.estado === 'inactivo') {
+      console.log('Usuario pendiente de verificación:', user.email);
+      return res.status(401).json({ 
+        message: 'Tu cuenta aún no ha sido verificada. Por favor, verifica tu correo electrónico para activar tu cuenta.',
+        requiresVerification: true,
+        email: user.email
+      });
+    }
+    
+    // Verificar si la cuenta está activa
+    if (user.estado !== 'activo') {
+      console.log('Usuario encontrado pero estado es:', user.estado);
+      return res.status(401).json({ message: 'La cuenta está inactiva o suspendida' });
+    }
+    
+    // Verificar si la contraseña comienza con '$2' (indicio de que está hasheada con bcrypt)
+    let isMatch = false;
+    if (user.contraseña.startsWith('$2')) {
+      // Contraseña hasheada con bcrypt
+      isMatch = await bcrypt.compare(password, user.contraseña);
+    } else {
+      // Contraseña sin hashear (método antiguo)
+      isMatch = (password === user.contraseña);
       
-      try {
-        const token = localStorage.getItem('token');
+      // Si coincide, actualizar a formato bcrypt para futuros inicios de sesión
+      if (isMatch) {
+        // Hashear la contraseña
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
         
-        if (token) {
-          // Verificar validez del token
-          const response = await api.verifyToken();
-          
-          if (response.valid) {
-            // Obtener datos del usuario
-            const userData = await api.getCurrentUser();
-            setUser(userData);
-          } else {
-            // Token inválido, limpiar almacenamiento
-            localStorage.removeItem('token');
-            localStorage.removeItem('userId');
-            localStorage.removeItem('userType');
-            setUser(null);
-          }
-        }
-      } catch (error) {
-        console.error('Error al verificar autenticación:', error);
-        // Limpiar almacenamiento si hay error
-        localStorage.removeItem('token');
-        localStorage.removeItem('userId');
-        localStorage.removeItem('userType');
-        setUser(null);
-      } finally {
-        setLoading(false);
+        // Actualizar en la base de datos
+        await pool.request()
+          .input('id_usuario', sql.Int, user.id_usuario)
+          .input('password', sql.VarChar, hashedPassword)
+          .query(`
+            UPDATE Usuarios
+            SET contraseña = @password
+            WHERE id_usuario = @id_usuario
+          `);
+        
+        console.log('Contraseña migrada a formato bcrypt para usuario:', user.email);
+      }
+    }
+    
+    if (!isMatch) {
+      console.log('Contraseña incorrecta');
+      return res.status(401).json({ message: 'Credenciales incorrectas' });
+    }
+    
+    // Crear token JWT
+    const payload = {
+      user: {
+        id: user.id_usuario,
+        type: user.tipo_usuario
       }
     };
     
-    checkLoggedIn();
-  }, []);
-  
-  // Función para iniciar sesión
-  const login = async (email, password) => {
-    setLoading(true);
-    setError(null);
+    // Verificar que JWT_SECRET esté definido
+    if (!process.env.JWT_SECRET) {
+      console.error('Error crítico: JWT_SECRET no está definido en variables de entorno');
+      return res.status(500).json({ message: 'Error de configuración del servidor' });
+    }
     
-    try {
-      const response = await api.login(email, password);
-      
-      // Guardar token y datos del usuario
-      localStorage.setItem('token', response.token);
-      localStorage.setItem('userId', response.user.id);
-      localStorage.setItem('userType', response.user.type);
-      
-      // Actualizar estado
-      setUser(response.user);
-      
-      return response.user;
-    } catch (error) {
-      console.error('Error al iniciar sesión:', error);
-      
-      // Si es un error de verificación pendiente, propagar para manejarlo en el componente
-      if (error.response?.data?.requiresVerification) {
-        setError(error.response.data.message);
-        throw error; // Propagar el error para manejarlo en el componente
-      } else {
-        setError(error.response?.data?.message || 'Error al iniciar sesión');
+    jwt.sign(
+      payload,
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' },
+      (err, token) => {
+        if (err) {
+          console.error('Error al generar JWT:', err);
+          return res.status(500).json({ message: 'Error al generar token de autenticación' });
+        }
+        
+        // Actualizar fecha del último login (opcional)
+        pool.request()
+          .input('id_usuario', sql.Int, user.id_usuario)
+          .query(`
+            UPDATE Usuarios 
+            SET fecha_registro = GETDATE() 
+            WHERE id_usuario = @id_usuario
+          `);
+        
+        // Devolver token y datos básicos del usuario
+        res.json({
+          token,
+          user: {
+            id: user.id_usuario,
+            name: user.nombre,
+            email: user.email,
+            type: user.tipo_usuario
+          }
+        });
       }
-      
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  // Función para registrarse
-  const register = async (userData) => {
-    setLoading(true);
-    setError(null);
+    );
+  } catch (error) {
+    console.error('Error detallado en el login:', error);
+    console.error('Stack trace:', error.stack);
     
-    try {
-      const response = await api.register(userData);
-      
-      // Verificar si se requiere verificación de email
-      if (response.requiresVerification) {
-        // Guardar email para posible reenvío de verificación
-        localStorage.setItem('pendingVerificationEmail', response.email);
-        
-        // No establecer el usuario como autenticado hasta la verificación
-        setUser(null);
-        
-        return { requiresVerification: true, email: response.email };
-      } else {
-        // Si no se requiere verificación, proceder como antes
-        localStorage.setItem('token', response.token);
-        localStorage.setItem('userId', response.user.id);
-        localStorage.setItem('userType', response.user.type);
-        
-        // Actualizar estado
-        setUser(response.user);
-        
-        return response.user;
-      }
-    } catch (error) {
-      console.error('Error al registrar usuario:', error);
-      setError(error.response?.data?.message || 'Error al registrar usuario');
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
+    res.status(500).json({ 
+      message: 'Error en el servidor', 
+      details: error.message 
+    });
+  }
+});
 
-  // Función para cerrar sesión
-  const logout = () => {
-    // Limpiar almacenamiento
-    localStorage.removeItem('token');
-    localStorage.removeItem('userId');
-    localStorage.removeItem('userType');
-    localStorage.removeItem('pendingVerificationEmail');
-    
-    // Actualizar estado
-    setUser(null);
-  };
-  
-  // Función para reenviar verificación de email
-  const resendVerification = async (email) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await api.resendVerification(email);
-      return response;
-    } catch (error) {
-      console.error('Error al reenviar verificación:', error);
-      setError(error.response?.data?.message || 'Error al reenviar verificación');
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  // Proporcionar valores del contexto
-const value = {
-  user,
-  setUser,  
-  loading,
-  error,
-  login,
-  register,
-  logout,
-  resendVerification,
-  isAuthenticated: !!user
-};
-  
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
+// Configuración de nodemailer
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD
+  },
+  tls: {
+    rejectUnauthorized: false
+  }
+});
 
-// Hook personalizado para usar el contexto
-export const useAuth = () => {
-  const context = React.useContext(AuthContext);
+// Prueba la conexión al iniciar
+transporter.verify(function(error, success) {
+  if (error) {
+    console.error('Error en la configuración del correo:', error);
+  } else {
+    console.log('Servidor de correo listo para enviar mensajes');
+  }
+});
+
+router.post('/register', async (req, res) => {
+  console.log('Datos recibidos para registro:', JSON.stringify(req.body));
   
-  if (!context) {
-    throw new Error('useAuth debe ser usado dentro de un AuthProvider');
+  const { nombre, email, password, telefono, direccion, fecha_nacimiento } = req.body;
+  
+  // Validaciones básicas
+  if (!nombre || !email || !password) {
+    return res.status(400).json({ message: 'Nombre, email y contraseña son obligatorios' });
   }
   
-  return context;
-};
+  try {
+    const pool = await connectDB();
+    
+    // Verificar si el email ya existe
+    const emailCheck = await pool.request()
+      .input('email', sql.VarChar, email)
+      .query('SELECT email FROM Usuarios WHERE email = @email');
+    
+    if (emailCheck.recordset.length > 0) {
+      return res.status(400).json({ message: 'El email ya está registrado' });
+    }
+    
+    // Generar token de verificación - usar token más corto
+    const verificationToken = crypto.randomBytes(16).toString('hex');
+    const tokenExpires = new Date();
+    tokenExpires.setHours(tokenExpires.getHours() + 24); // El token expira en 24 horas
+    
+    // Generar el hash de la contraseña
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    
+    console.log('Preparando inserción de usuario...');
+    
+    // Simplificar: Primero solo insertar el usuario sin usar transacción
+    const userInsert = await pool.request()
+      .input('nombre', sql.VarChar, nombre)
+      .input('email', sql.VarChar, email)
+      .input('password', sql.VarChar, hashedPassword) // Usar contraseña hasheada
+      .input('telefono', sql.VarChar, telefono || '')
+      .input('direccion', sql.VarChar, direccion || '')
+      .input('fecha_nacimiento', sql.Date, fecha_nacimiento ? new Date(fecha_nacimiento) : null)
+      .input('tipo_usuario', sql.VarChar, 'cliente')
+      .input('verification_token', sql.VarChar, verificationToken)
+      .input('token_expires', sql.DateTime, tokenExpires)
+      .query(`
+        INSERT INTO Usuarios (
+            nombre, 
+            email, 
+            contraseña, 
+            telefono, 
+            direccion, 
+            fecha_nacimiento, 
+            tipo_usuario, 
+            fecha_registro, 
+            estado,
+            verification_token,
+            token_expires
+        )
+        VALUES (
+            @nombre, 
+            @email, 
+            @password, 
+            @telefono,
+            @direccion,
+            @fecha_nacimiento,
+            @tipo_usuario,
+            GETDATE(),
+            'inactivo',
+            @verification_token,
+            @token_expires
+        );
+        
+        SELECT SCOPE_IDENTITY() AS id_usuario;
+      `);
+    
+    const userId = userInsert.recordset[0].id_usuario;
+    console.log('Usuario insertado correctamente, ID:', userId);
+    
+    // Preparar URL de verificación - modificación para usar URL completa para verificación directa
+    const verificationUrl = `${process.env.FRONTEND_URL}/verificar-email/${verificationToken}`;
+    
+    console.log('URL de verificación:', verificationUrl);
+    console.log('Preparando envío de correo a:', email);
+    
+    // Luego, si la inserción fue exitosa, enviar el correo
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Verifica tu cuenta de Fitness Gym',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 2px solid #4a9ced; border-radius: 10px;">
+          <h2 style="color: #ff9966; text-align: center;">¡Gracias por registrarte en Fitness Gym!</h2>
+          <p>Hola ${nombre},</p>
+          <p>Estás a un paso de completar tu registro. Por favor, haz clic en el siguiente enlace para verificar tu dirección de correo electrónico:</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${verificationUrl}" style="background: linear-gradient(to right, #ff9966, #ffde59); color: white; text-decoration: none; padding: 12px 30px; border-radius: 25px; font-weight: bold;">Verificar mi cuenta</a>
+          </div>
+          <p>Este enlace es válido por 24 horas. Si no verificas tu cuenta en este tiempo, deberás registrarte nuevamente.</p>
+          <p>Si no solicitaste este registro, puedes ignorar este correo.</p>
+          <p style="text-align: center; margin-top: 30px; font-size: 12px; color: #777;">
+            Este es un correo automático, por favor no respondas a este mensaje.
+          </p>
+        </div>
+      `
+    };
+    
+    try {
+      console.log('Enviando correo electrónico...');
+      await transporter.sendMail(mailOptions);
+      console.log('Correo enviado correctamente');
+      
+      // Responder al cliente
+      res.status(201).json({
+        message: 'Usuario registrado. Por favor, verifica tu correo electrónico para activar tu cuenta.',
+        requiresVerification: true,
+        email: email
+      });
+    } catch (emailError) {
+      console.error('Error al enviar correo:', emailError);
+      console.error('Stack trace:', emailError.stack);
+      
+      // No revertimos la inserción, pero informamos del error
+      res.status(500).json({ 
+        message: 'Usuario registrado pero hubo un problema al enviar el correo de verificación. Detalles: ' + emailError.message,
+        requiresVerification: true,
+        email: email
+      });
+    }
+  } catch (error) {
+    console.error('Error completo en el registro:', error);
+    console.error('Stack trace del error:', error.stack);
+    
+    // Determinar el tipo de error para dar una respuesta más específica
+    let errorMessage = 'Error en el servidor durante el registro';
+    if (error.code) {
+      console.log('Código de error SQL:', error.code);
+      if (error.code.includes('UNIQUE')) {
+        errorMessage = 'El email ya está registrado';
+      }
+    }
+    
+    res.status(500).json({ 
+      message: errorMessage,
+      details: error.message
+    });
+  }
+});
 
+// 5. Ruta para verificar el email - AJUSTADA para mejor logging y manejo de errores
+router.get('/verify-email/:token', async (req, res) => {
+  const { token } = req.params;
+  
+  console.log('SERVIDOR: Recibida solicitud para verificar email con token:', token.substring(0, 10) + '...');
+  console.log('SERVIDOR: URL completa:', req.originalUrl);
+  
+  try {
+    if (!token || token.length < 10) {
+      console.error('Token inválido o muy corto:', token);
+      return res.status(400).json({ message: 'Token de verificación inválido o faltante' });
+    }
+    
+    const pool = await connectDB();
+    
+    // Buscar el usuario con el token proporcionado
+    const result = await pool.request()
+      .input('token', sql.VarChar, token)
+      .query(`
+        SELECT id_usuario, email, token_expires, estado
+        FROM Usuarios 
+        WHERE verification_token = @token
+      `);
+    
+    console.log('Resultado de búsqueda de token:', result.recordset.length > 0 ? 'Usuario encontrado' : 'Usuario no encontrado');
+    
+    if (result.recordset.length === 0) {
+      return res.status(400).json({ message: 'Token de verificación inválido o ya utilizado' });
+    }
+    
+    const user = result.recordset[0];
+    
+    // Verificar si la cuenta ya está activa
+    if (user.estado === 'activo') {
+      console.log('La cuenta ya está activa para el usuario:', user.email);
+      return res.json({
+        message: 'Tu cuenta ya ha sido verificada anteriormente. Puedes iniciar sesión.',
+        alreadyVerified: true
+      });
+    }
+    
+    // Verificar si el token ha expirado
+    const now = new Date();
+    const tokenExpires = new Date(user.token_expires);
+    
+    if (now > tokenExpires) {
+      console.log('Token expirado para el usuario:', user.email);
+      return res.status(400).json({ message: 'El token de verificación ha expirado. Por favor, regístrate nuevamente.' });
+    }
+    
+    // Actualizar el estado del usuario a 'activo'
+    await pool.request()
+      .input('id_usuario', sql.Int, user.id_usuario)
+      .query(`
+        UPDATE Usuarios 
+        SET 
+          estado = 'activo',
+          verification_token = NULL,
+          token_expires = NULL
+        WHERE id_usuario = @id_usuario
+      `);
+    
+    console.log('Usuario activado correctamente:', user.email);
+    
+    // Crear token JWT para inicio de sesión automático
+    const payload = {
+      user: {
+        id: user.id_usuario,
+        type: 'cliente'
+      }
+    };
+    
+    jwt.sign(
+      payload,
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' },
+      (err, token) => {
+        if (err) {
+          console.error('Error al generar token JWT:', err);
+          return res.status(500).json({ message: 'Error al generar token de autenticación' });
+        }
+        
+        console.log('Token JWT generado correctamente para:', user.email);
+        res.json({
+          message: 'Email verificado exitosamente. Tu cuenta ha sido activada.',
+          token,
+          user: {
+            id: user.id_usuario,
+            email: user.email,
+            type: 'cliente'
+          }
+        });
+      }
+    );
+    
+  } catch (error) {
+    console.error('Error detallado al verificar email:', error);
+    console.error('Stack trace:', error.stack);
+    res.status(500).json({ message: 'Error en el servidor al verificar el email', details: error.message });
+  }
+});
+
+// NUEVA RUTA: Verificación directa que redirecciona al frontend
+router.get('/verify-email-direct/:token', async (req, res) => {
+  const { token } = req.params;
+  
+  console.log('SERVIDOR: Recibida solicitud para verificación directa con token:', token.substring(0, 10) + '...');
+  
+  try {
+    if (!token || token.length < 10) {
+      console.error('Token inválido o muy corto en verificación directa:', token);
+      return res.redirect(`${process.env.FRONTEND_URL}/login?verificationError=true&message=${encodeURIComponent('Token inválido')}`);
+    }
+    
+    const pool = await connectDB();
+    
+    // Buscar el usuario con el token proporcionado
+    const result = await pool.request()
+      .input('token', sql.VarChar, token)
+      .query(`
+        SELECT id_usuario, email, token_expires, estado
+        FROM Usuarios 
+        WHERE verification_token = @token
+      `);
+    
+    if (result.recordset.length === 0) {
+      return res.redirect(`${process.env.FRONTEND_URL}/login?verificationError=true&message=${encodeURIComponent('Token no encontrado o ya utilizado')}`);
+    }
+    
+    const user = result.recordset[0];
+    
+    // Verificar si la cuenta ya está activa
+    if (user.estado === 'activo') {
+      console.log('La cuenta ya está activa para el usuario en verificación directa:', user.email);
+      return res.redirect(`${process.env.FRONTEND_URL}/login?alreadyVerified=true`);
+    }
+    
+    // Verificar si el token ha expirado
+    const now = new Date();
+    const tokenExpires = new Date(user.token_expires);
+    
+    if (now > tokenExpires) {
+      console.log('Token expirado para el usuario en verificación directa:', user.email);
+      return res.redirect(`${process.env.FRONTEND_URL}/login?verificationError=true&message=${encodeURIComponent('Token expirado')}`);
+    }
+    
+    // Actualizar el estado del usuario a 'activo'
+    await pool.request()
+      .input('id_usuario', sql.Int, user.id_usuario)
+      .query(`
+        UPDATE Usuarios 
+        SET 
+          estado = 'activo',
+          verification_token = NULL,
+          token_expires = NULL
+        WHERE id_usuario = @id_usuario
+      `);
+    
+    console.log('Usuario activado correctamente en verificación directa:', user.email);
+    
+    // Redirigir al usuario al frontend con un mensaje de éxito
+    return res.redirect(`${process.env.FRONTEND_URL}/login?verified=true`);
+    
+  } catch (error) {
+    console.error('Error detallado en verificación directa:', error);
+    console.error('Stack trace:', error.stack);
+    return res.redirect(`${process.env.FRONTEND_URL}/login?verificationError=true&message=${encodeURIComponent('Error del servidor')}`);
+  }
+});
+
+// Añade esta ruta para probar el envío de correo
+router.get('/test-email', async (req, res) => {
+  try {
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: process.env.EMAIL_USER, // Enviar a mi mismo para probar
+      subject: 'Prueba de Correo - Fitness Gym',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 2px solid #4a9ced; border-radius: 10px;">
+          <h2 style="color: #ff9966; text-align: center;">Prueba de Correo</h2>
+          <p>Este es un correo de prueba para verificar la configuración de nodemailer.</p>
+          <p>Si estás viendo este mensaje, ¡la configuración funciona correctamente!</p>
+        </div>
+      `
+    };
+    
+    await transporter.sendMail(mailOptions);
+    res.json({ success: true, message: 'Correo enviado con éxito' });
+  } catch (error) {
+    console.error('Error al enviar correo de prueba:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error al enviar correo', 
+      details: error.message 
+    });
+  }
+});
+
+// 6. Ruta para reenviar el correo de verificación
+router.post('/resend-verification', async (req, res) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({ message: 'Se requiere el correo electrónico' });
+  }
+  
+  try {
+    const pool = await connectDB();
+    
+    // Buscar al usuario por email
+    const userResult = await pool.request()
+      .input('email', sql.VarChar, email)
+      .query(`
+        SELECT id_usuario, nombre, estado 
+        FROM Usuarios 
+        WHERE email = @email
+      `);
+    
+    if (userResult.recordset.length === 0) {
+      return res.status(404).json({ message: 'No se encontró ningún usuario con este correo electrónico' });
+    }
+    
+    const user = userResult.recordset[0];
+    
+    // Verificar si la cuenta ya está activa
+    if (user.estado === 'activo') {
+      return res.status(400).json({ message: 'Esta cuenta ya está verificada. Puedes iniciar sesión.' });
+    }
+    
+    // Generar nuevo token
+    const verificationToken = crypto.randomBytes(16).toString('hex');
+    const tokenExpires = new Date();
+    tokenExpires.setHours(tokenExpires.getHours() + 24);
+    
+    // Actualizar token en la base de datos
+    await pool.request()
+      .input('id_usuario', sql.Int, user.id_usuario)
+      .input('verification_token', sql.VarChar, verificationToken)
+      .input('token_expires', sql.DateTime, tokenExpires)
+      .query(`
+        UPDATE Usuarios 
+        SET 
+          verification_token = @verification_token,
+          token_expires = @token_expires
+        WHERE id_usuario = @id_usuario
+      `);
+    
+    // Preparar URL de verificación - actualizada para usar la verificación directa
+    const verificationUrl = `${process.env.FRONTEND_URL}/verificar-email/${verificationToken}`;
+    
+    // Enviar email de verificación
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Verifica tu cuenta de Fitness Gym',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 2px solid #4a9ced; border-radius: 10px;">
+          <h2 style="color: #ff9966; text-align: center;">Verificación de cuenta en Fitness Gym</h2>
+          <p>Hola ${user.nombre},</p>
+          <p>Has solicitado un nuevo enlace de verificación. Por favor, haz clic en el siguiente enlace para verificar tu dirección de correo electrónico:</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${verificationUrl}" style="background: linear-gradient(to right, #ff9966, #ffde59); color: white; text-decoration: none; padding: 12px 30px; border-radius: 25px; font-weight: bold;">Verificar mi cuenta</a>
+          </div>
+          <p>Este enlace es válido por 24 horas. Si no verificas tu cuenta en este tiempo, deberás solicitar un nuevo enlace.</p>
+          <p>Si no solicitaste este enlace, puedes ignorar este correo.</p>
+          <p style="text-align: center; margin-top: 30px; font-size: 12px; color: #777;">
+            Este es un correo automático, por favor no respondas a este mensaje.
+          </p>
+        </div>
+      `
+    };
+    
+    // Enviar el correo
+    await transporter.sendMail(mailOptions);
+    
+    res.json({ message: 'Se ha enviado un nuevo correo de verificación. Por favor, revisa tu bandeja de entrada.' });
+    
+  } catch (error) {
+    console.error('Error al reenviar verificación:', error);
+    res.status(500).json({ message: 'Error en el servidor' });
+  }
+});
+
+// Ruta para solicitar restablecimiento de contraseña
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({ message: 'Se requiere el correo electrónico' });
+  }
+  
+  try {
+    const pool = await connectDB();
+    
+    // Verificar si el email existe
+    const userResult = await pool.request()
+      .input('email', sql.VarChar, email)
+      .query(`
+        SELECT id_usuario, nombre, email 
+        FROM Usuarios 
+        WHERE email = @email
+      `);
+    
+    if (userResult.recordset.length === 0) {
+      // Por seguridad, no informar si el email existe o no
+      return res.json({ message: 'Si el correo existe en nuestro sistema, recibirás instrucciones para restablecer tu contraseña.' });
+    }
+    
+    const user = userResult.recordset[0];
+    
+    // Generar token de restablecimiento
+    const resetToken = crypto.randomBytes(16).toString('hex');
+    const tokenExpires = new Date();
+    tokenExpires.setHours(tokenExpires.getHours() + 1); // El token expira en 1 hora
+    
+    // Guardar token en la base de datos
+    await pool.request()
+      .input('id_usuario', sql.Int, user.id_usuario)
+      .input('reset_token', sql.VarChar, resetToken)
+      .input('token_expires', sql.DateTime, tokenExpires)
+      .query(`
+        UPDATE Usuarios 
+        SET 
+          verification_token = @reset_token,
+          token_expires = @token_expires
+        WHERE id_usuario = @id_usuario
+      `);
+    
+    // Preparar URL de restablecimiento
+    const resetUrl = `${process.env.FRONTEND_URL}/restablecer-password/${resetToken}`;
+    
+    // Enviar email con instrucciones
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Restablece tu contraseña - Fitness Gym',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 2px solid #4a9ced; border-radius: 10px;">
+          <h2 style="color: #ff9966; text-align: center;">Restablece tu contraseña</h2>
+          <p>Hola ${user.nombre},</p>
+          <p>Has solicitado restablecer tu contraseña. Haz clic en el siguiente enlace para crear una nueva contraseña:</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetUrl}" style="background: linear-gradient(to right, #ff9966, #ffde59); color: white; text-decoration: none; padding: 12px 30px; border-radius: 25px; font-weight: bold;">Restablecer contraseña</a>
+          </div>
+          <p>Este enlace es válido por 1 hora. Si no solicitaste restablecer tu contraseña, puedes ignorar este correo.</p>
+          <p style="text-align: center; margin-top: 30px; font-size: 12px; color: #777;">
+            Este es un correo automático, por favor no respondas a este mensaje.
+          </p>
+        </div>
+      `
+    };
+    
+    await transporter.sendMail(mailOptions);
+    
+    // Por seguridad, siempre devolver el mismo mensaje
+    res.json({ message: 'Si el correo existe en nuestro sistema, recibirás instrucciones para restablecer tu contraseña.' });
+    
+  } catch (error) {
+    console.error('Error al solicitar restablecimiento de contraseña:', error);
+    res.status(500).json({ message: 'Error al procesar la solicitud' });
+  }
+});
 
 // Ruta para verificar token de restablecimiento
 router.get('/reset-password/:token', async (req, res) => {
