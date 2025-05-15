@@ -1284,7 +1284,8 @@ router.post('/register', async (req, res) => {
     
     // Preparar URL de verificación - modificación para usar URL completa para verificación directa
    // const verificationUrl = `${process.env.FRONTEND_URL}/verificar-email/${verificationToken}`;
-    const verificationUrl = `${process.env.API_URL}/api/auth/verify-email-direct/${verificationToken}`;
+const backendUrl = process.env.API_URL || 'https://backend-h016.onrender.com';
+const verificationUrl = `${backendUrl}/api/auth/verify-email-direct/${verificationToken}`;
 
     console.log('URL de verificación:', verificationUrl);
     console.log('Preparando envío de correo a:', email);
@@ -1588,8 +1589,8 @@ router.post('/resend-verification', async (req, res) => {
     
     // Preparar URL de verificación - actualizada para usar la verificación directa
     //const verificationUrl = `${process.env.FRONTEND_URL}/verificar-email/${verificationToken}`;
-    const verificationUrl = `${process.env.API_URL}/api/auth/verify-email-direct/${verificationToken}`;
-    // Enviar email de verificación
+const backendUrl = process.env.API_URL || 'https://backend-h016.onrender.com';
+const verificationUrl = `${backendUrl}/api/auth/verify-email-direct/${verificationToken}`;    // Enviar email de verificación
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: email,
