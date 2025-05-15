@@ -189,16 +189,13 @@ app.use((err, req, res, next) => {
 });
 
 // Ruta de verificación directa con redirección al frontend
-// IMPORTANTE: Esta ruta debe estar ANTES de las demás rutas de API
+// Añadir esto en server.js, ANTES de las demás rutas API
 app.get('/api/auth/verify-email-direct/:token', async (req, res) => {
   const { token } = req.params;
   
-  console.log('SERVIDOR: Recibida solicitud para verificación directa con token:', 
-    token.substring(0, 10) + '...');
+  console.log('Verificación directa para token:', token.substring(0, 10) + '...');
   
   try {
-    // Intentar verificar el token (puedes reutilizar la lógica de auth.js)
-    const { sql, connectDB } = require('./config/db');
     const pool = await connectDB();
     
     // Buscar el usuario con el token proporcionado
@@ -211,24 +208,16 @@ app.get('/api/auth/verify-email-direct/:token', async (req, res) => {
       `);
     
     if (result.recordset.length === 0) {
-      console.log('Token no encontrado en verificación directa');
       return res.redirect(`${process.env.FRONTEND_URL}/login?verificationError=true&message=${encodeURIComponent('Token no encontrado o ya utilizado')}`);
     }
     
     const user = result.recordset[0];
-    
-    // Verificar si la cuenta ya está activa
-    if (user.estado === 'activo') {
-      console.log('La cuenta ya está activa en verificación directa:', user.email);
-      return res.redirect(`${process.env.FRONTEND_URL}/login?alreadyVerified=true`);
-    }
     
     // Verificar si el token ha expirado
     const now = new Date();
     const tokenExpires = new Date(user.token_expires);
     
     if (now > tokenExpires) {
-      console.log('Token expirado en verificación directa:', user.email);
       return res.redirect(`${process.env.FRONTEND_URL}/login?verificationError=true&message=${encodeURIComponent('Token expirado')}`);
     }
     
@@ -244,14 +233,13 @@ app.get('/api/auth/verify-email-direct/:token', async (req, res) => {
         WHERE id_usuario = @id_usuario
       `);
     
-    console.log('Usuario activado correctamente en verificación directa:', user.email);
+    console.log('Usuario activado correctamente:', user.email);
     
-    // Redirigir al usuario al frontend con un mensaje de éxito
+    // Redirigir al login con mensaje de éxito
     return res.redirect(`${process.env.FRONTEND_URL}/login?verified=true`);
     
   } catch (error) {
-    console.error('Error detallado en verificación directa:', error);
-    console.error('Stack trace:', error.stack);
+    console.error('Error en verificación directa:', error);
     return res.redirect(`${process.env.FRONTEND_URL}/login?verificationError=true&message=${encodeURIComponent('Error del servidor')}`);
   }
 });

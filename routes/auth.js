@@ -1283,8 +1283,9 @@ router.post('/register', async (req, res) => {
     console.log('Usuario insertado correctamente, ID:', userId);
     
     // Preparar URL de verificación - modificación para usar URL completa para verificación directa
-    const verificationUrl = `${process.env.FRONTEND_URL}/verificar-email/${verificationToken}`;
-    
+   // const verificationUrl = `${process.env.FRONTEND_URL}/verificar-email/${verificationToken}`;
+    const verificationUrl = `${process.env.API_URL}/api/auth/verify-email-direct/${verificationToken}`;
+
     console.log('URL de verificación:', verificationUrl);
     console.log('Preparando envío de correo a:', email);
     
@@ -1352,19 +1353,12 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// 5. Ruta para verificar el email - AJUSTADA para mejor logging y manejo de errores
 router.get('/verify-email/:token', async (req, res) => {
   const { token } = req.params;
   
   console.log('SERVIDOR: Recibida solicitud para verificar email con token:', token.substring(0, 10) + '...');
-  console.log('SERVIDOR: URL completa:', req.originalUrl);
   
   try {
-    if (!token || token.length < 10) {
-      console.error('Token inválido o muy corto:', token);
-      return res.status(400).json({ message: 'Token de verificación inválido o faltante' });
-    }
-    
     const pool = await connectDB();
     
     // Buscar el usuario con el token proporcionado
@@ -1376,8 +1370,6 @@ router.get('/verify-email/:token', async (req, res) => {
         WHERE verification_token = @token
       `);
     
-    console.log('Resultado de búsqueda de token:', result.recordset.length > 0 ? 'Usuario encontrado' : 'Usuario no encontrado');
-    
     if (result.recordset.length === 0) {
       return res.status(400).json({ message: 'Token de verificación inválido o ya utilizado' });
     }
@@ -1386,7 +1378,6 @@ router.get('/verify-email/:token', async (req, res) => {
     
     // Verificar si la cuenta ya está activa
     if (user.estado === 'activo') {
-      console.log('La cuenta ya está activa para el usuario:', user.email);
       return res.json({
         message: 'Tu cuenta ya ha sido verificada anteriormente. Puedes iniciar sesión.',
         alreadyVerified: true
@@ -1398,7 +1389,6 @@ router.get('/verify-email/:token', async (req, res) => {
     const tokenExpires = new Date(user.token_expires);
     
     if (now > tokenExpires) {
-      console.log('Token expirado para el usuario:', user.email);
       return res.status(400).json({ message: 'El token de verificación ha expirado. Por favor, regístrate nuevamente.' });
     }
     
@@ -1413,8 +1403,6 @@ router.get('/verify-email/:token', async (req, res) => {
           token_expires = NULL
         WHERE id_usuario = @id_usuario
       `);
-    
-    console.log('Usuario activado correctamente:', user.email);
     
     // Crear token JWT para inicio de sesión automático
     const payload = {
@@ -1434,7 +1422,6 @@ router.get('/verify-email/:token', async (req, res) => {
           return res.status(500).json({ message: 'Error al generar token de autenticación' });
         }
         
-        console.log('Token JWT generado correctamente para:', user.email);
         res.json({
           message: 'Email verificado exitosamente. Tu cuenta ha sido activada.',
           token,
@@ -1600,8 +1587,8 @@ router.post('/resend-verification', async (req, res) => {
       `);
     
     // Preparar URL de verificación - actualizada para usar la verificación directa
-    const verificationUrl = `${process.env.FRONTEND_URL}/verificar-email/${verificationToken}`;
-    
+    //const verificationUrl = `${process.env.FRONTEND_URL}/verificar-email/${verificationToken}`;
+    const verificationUrl = `${process.env.API_URL}/api/auth/verify-email-direct/${verificationToken}`;
     // Enviar email de verificación
     const mailOptions = {
       from: process.env.EMAIL_USER,
