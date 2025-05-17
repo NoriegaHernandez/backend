@@ -145,12 +145,31 @@ app.use((req, res, next) => {
   next();
 });
 
-// Configuración simple de CORS - permitir todas las solicitudes
-app.use(cors());
+// Configuración de CORS simple y efectiva
+app.use(cors({
+  origin: '*', // Permite cualquier origen
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization'],
+  credentials: true
+}));
+
+// Habilitar preflight para todas las rutas
+app.options('*', cors());
 
 // Middleware para parsear JSON y URL-encoded (ANTES de las rutas)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Middleware para manejar errores CORS
+app.use((err, req, res, next) => {
+  if (err.message === 'No permitido por CORS') {
+    return res.status(403).json({
+      message: 'Origen no permitido',
+      requestOrigin: req.headers.origin
+    });
+  }
+  next(err);
+});
 
 // Ruta de verificación directa con redirección al frontend
 // IMPORTANTE: Esta ruta debe estar ANTES de las demás rutas de API
