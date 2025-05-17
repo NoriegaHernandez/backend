@@ -145,48 +145,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// Configuración de CORS mejorada
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Lista de orígenes permitidos
-    const allowedOrigins = [
-      'http://localhost:5173',
-      'https://frontend-e7n0.onrender.com',
-      // Añadir cualquier otro origen que necesites
-      process.env.FRONTEND_URL
-    ];
-    
-    // Permitir solicitudes sin origin (como las de Postman o curl)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
-      callback(null, true);
-    } else {
-      console.log('Origen bloqueado por CORS:', origin);
-      callback(new Error('No permitido por CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization']
-};
-
-app.use(cors(corsOptions));
+// Configuración simple de CORS - permitir todas las solicitudes
+app.use(cors());
 
 // Middleware para parsear JSON y URL-encoded (ANTES de las rutas)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Middleware para manejar errores CORS
-app.use((err, req, res, next) => {
-  if (err.message === 'No permitido por CORS') {
-    return res.status(403).json({
-      message: 'Origen no permitido',
-      requestOrigin: req.headers.origin
-    });
-  }
-  next(err);
-});
 
 // Ruta de verificación directa con redirección al frontend
 // IMPORTANTE: Esta ruta debe estar ANTES de las demás rutas de API
