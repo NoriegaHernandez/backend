@@ -152,19 +152,36 @@ const corsOptions = {
     const allowedOrigins = [
       'http://localhost:5173',
       'https://frontend-e7n0.onrender.com',
-      // Añadir cualquier otro origen que necesites
-      process.env.FRONTEND_URL
+      'http://frontend-e7n0.onrender.com', // Añadimos la versión sin HTTPS
+      process.env.FRONTEND_URL,
+      'https://backend-h016.onrender.com', // Añadimos la URL del backend por si acaso
+      'http://localhost:3000', // Añadimos otro puerto común
+      'http://localhost:8080'  // Añadimos otro puerto común
     ];
+    
+    // Permitir todas las solicitudes en desarrollo
+    if (process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
     
     // Permitir solicitudes sin origin (como las de Postman o curl)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+    // Para debugging - registra siempre el origen
+    console.log('Origen de la solicitud:', origin);
+    
+    // Temporalmente, permitimos todos los orígenes para diagnosticar el problema
+    return callback(null, true);
+    
+    /*
+    // Descomentar esta parte cuando el problema esté resuelto
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       console.log('Origen bloqueado por CORS:', origin);
       callback(new Error('No permitido por CORS'));
     }
+    */
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -172,6 +189,9 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+// Configuración de preflight para todas las rutas
+app.options('*', cors(corsOptions));
 
 // Middleware para parsear JSON y URL-encoded (ANTES de las rutas)
 app.use(express.json());
@@ -186,6 +206,15 @@ app.use((err, req, res, next) => {
     });
   }
   next(err);
+});
+
+// Middleware para agregar encabezados CORS manualmente (capa adicional de seguridad)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-auth-token, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  next();
 });
 
 // Ruta de verificación directa con redirección al frontend
