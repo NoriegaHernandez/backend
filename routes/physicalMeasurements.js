@@ -2,8 +2,10 @@
 
 const express = require('express');
 const router = express.Router();
-const { connectDB, sql } = require('../../config/db');
-const authMiddleware = require('../../middleware/auth');
+// const { connectDB, sql } = require('../../config/db');
+// const authMiddleware = require('../../middleware/auth');
+const { connectDB, sql } = require('../config/db');
+const authMiddleware = require('../middleware/auth');
 
 // Ruta para guardar medidas físicas
 router.post('/physical-measurements', authMiddleware, async (req, res) => {

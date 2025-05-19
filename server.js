@@ -123,18 +123,6 @@ const path = require('path');
 require('dotenv').config();
 const { connectDB } = require('./config/db');
 
-/// Ahora sí puedes importar las rutas y hacer app.use
-const physicalMeasurementsRoutes = require('/routes/physicalMeasurements');
-app.use('/api/client', physicalMeasurementsRoutes);
-
-
-app.use('/api/auth', authRoutes);
-app.use('/api/coach', coachRoutes);
-app.use('/api/client', clientRoutes);
-app.use('/api/client', physicalMeasurementsRoutes); // Montar las rutas de medidas físicas
-app.use('/api/admin', adminRoutes);
-app.use('/api', clientMembresiasRoutes);
-
 // Importar rutas
 const authRoutes = require('./routes/auth');
 const coachRoutes = require('./routes/coach');
@@ -157,16 +145,33 @@ app.use((req, res, next) => {
   next();
 });
 
-// Configuración de CORS simple y efectiva
-app.use(cors({
-  origin: '*', // Permite cualquier origen
+// Configuración de CORS mejorada
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Lista de orígenes permitidos
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'https://frontend-e7n0.onrender.com',
+      // Añadir cualquier otro origen que necesites
+      process.env.FRONTEND_URL
+    ];
+    
+    // Permitir solicitudes sin origin (como las de Postman o curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      callback(null, true);
+    } else {
+      console.log('Origen bloqueado por CORS:', origin);
+      callback(new Error('No permitido por CORS'));
+    }
+  },
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization'],
-  credentials: true
-}));
+  allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization']
+};
 
-// Habilitar preflight para todas las rutas
-app.options('*', cors());
+app.use(cors(corsOptions));
 
 // Middleware para parsear JSON y URL-encoded (ANTES de las rutas)
 app.use(express.json());
