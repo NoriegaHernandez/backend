@@ -1917,26 +1917,12 @@ router.put('/profile', authMiddleware, async (req, res) => {
   console.log('Solicitud de actualización de perfil recibida:', req.body);
   
   try {
-    const { nombre, email, telefono, direccion, fecha_nacimiento } = req.body;
+    const { nombre, email, telefono, direccion, fecha_nacimiento, coach_info } = req.body;
     const userId = req.user.id;
     
     // Validaciones básicas
     if (!nombre || !email) {
       return res.status(400).json({ message: 'El nombre y email son obligatorios' });
-    }
-    
-    const pool = await connectDB();
-    
-    // Verificar si el email ya existe para otro usuario
-    if (email) {
-      const emailCheck = await pool.request()
-        .input('email', sql.VarChar, email)
-        .input('id_usuario', sql.Int, userId)
-        .query('SELECT email FROM Usuarios WHERE email = @email AND id_usuario != @id_usuario');
-      
-      if (emailCheck.recordset.length > 0) {
-        return res.status(400).json({ message: 'El email ya está siendo usado por otro usuario' });
-      }
     }
     
     // Preparar la fecha de nacimiento si existe
@@ -1951,59 +1937,82 @@ router.put('/profile', authMiddleware, async (req, res) => {
     
     console.log('Actualizando perfil para el usuario ID:', userId);
     
-    // Actualizar datos del usuario
-    const updateResult = await pool.request()
-      .input('id_usuario', sql.Int, userId)
-      .input('nombre', sql.VarChar, nombre)
-      .input('email', sql.VarChar, email)
-      .input('telefono', sql.VarChar, telefono || null)
-      .input('direccion', sql.VarChar, direccion || null)
-      .input('fecha_nacimiento', sql.Date, fechaNacimiento)
-      .query(`
-        UPDATE Usuarios
-        SET 
-          nombre = @nombre,
-          email = @email,
-          telefono = @telefono,
-          direccion = @direccion,
-          fecha_nacimiento = @fecha_nacimiento
-        WHERE 
-          id_usuario = @id_usuario;
-          
-        -- Devolver los datos actualizados
-        SELECT 
-          id_usuario, 
-          nombre, 
-          email, 
-          telefono, 
-          direccion, 
-          fecha_nacimiento, 
-          tipo_usuario, 
-          estado, 
-          fecha_registro
-        FROM 
-          Usuarios 
-        WHERE 
-          id_usuario = @id_usuario;
-      `);
+    // Preparar los datos para el procedimiento almacenado
+    const pool = await connectDB();
+    const request = pool.request();
     
-    // Verificar si se actualizó el usuario
-    if (updateResult.recordset.length === 0) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
+    // Parámetros básicos del usuario
+    request.input('id_usuario', sql.Int, userId);
+    request.input('nombre', sql.VarChar, nombre);
+    request.input('email', sql.VarChar, email);
+    request.input('telefono', sql.VarChar, telefono || null);
+    request.input('direccion', sql.VarChar, direccion || null);
+    request.input('fecha_nacimiento', sql.Date, fechaNacimiento);
+    
+    // Si hay información de coach, agregar esos parámetros
+    if (coach_info) {
+      console.log('Información de coach recibida:', coach_info);
+      request.input('especialidad', sql.VarChar, coach_info.especialidad || null);
+      request.input('certificaciones', sql.VarChar, coach_info.certificaciones || null);
+      request.input('biografia', sql.VarChar, coach_info.biografia || null);
+      request.input('horario_disponible', sql.VarChar, coach_info.horario_disponible || null);
+      request.input('experiencia', sql.VarChar, coach_info.experiencia || null);
     }
     
-    // Usuario actualizado, enviar datos actualizados
-    const updatedUserData = updateResult.recordset[0];
+    // Ejecutar el procedimiento almacenado
+    console.log('Ejecutando procedimiento almacenado sp_ActualizarPerfilCoach');
+    const result = await request.execute('sp_ActualizarPerfilCoach');
     
-    console.log('Perfil actualizado exitosamente');
-    res.json(updatedUserData);
-    
+    // Verificar si hay resultados
+    if (result.recordset && result.recordset.length > 0) {
+      const updatedData = result.recordset[0];
+      
+      // Estructurar los datos para mantener compatibilidad con el cliente
+      const responseData = {
+        id_usuario: updatedData.id_usuario,
+        nombre: updatedData.nombre,
+        email: updatedData.email,
+        telefono: updatedData.telefono,
+        direccion: updatedData.direccion,
+        fecha_nacimiento: updatedData.fecha_nacimiento,
+        tipo_usuario: updatedData.tipo_usuario,
+        estado: updatedData.estado,
+        fecha_registro: updatedData.fecha_registro
+      };
+      
+      // Si hay información de coach, incluirla
+      if (updatedData.id_coach) {
+        responseData.coach_info = {
+          id_coach: updatedData.id_coach,
+          especialidad: updatedData.especialidad,
+          certificaciones: updatedData.certificaciones,
+          biografia: updatedData.biografia,
+          horario_disponible: updatedData.horario_disponible,
+          experiencia: updatedData.experiencia
+        };
+      }
+      
+      console.log('Perfil actualizado exitosamente:', responseData);
+      res.json(responseData);
+    } else {
+      throw new Error('No se recibieron datos del servidor');
+    }
   } catch (error) {
-    console.error('Error al actualizar perfil:', error);
-    res.status(500).json({ message: 'Error del servidor al actualizar el perfil' });
+    console.error('Error detallado al actualizar perfil:', error);
+    console.error('Stack trace:', error.stack);
+    
+    // Determinar el tipo de error para dar una respuesta más específica
+    let errorMessage = 'Error en el servidor al actualizar el perfil';
+    
+    if (error.message.includes('email ya está en uso')) {
+      errorMessage = 'El email ya está siendo usado por otro usuario';
+    } else if (error.message.includes('usuario no existe')) {
+      errorMessage = 'El usuario no existe';
+    }
+    
+    res.status(500).json({ message: errorMessage });
   }
 });
-
 // Ruta para cambiar contraseña del usuario actual
 router.put('/change-password', authMiddleware, async (req, res) => {
   const { currentPassword, newPassword } = req.body;

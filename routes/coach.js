@@ -13,7 +13,58 @@ const adminMiddleware = (req, res, next) => {
   }
   next();
 };
-
+router.get('/routines', authMiddleware, async (req, res) => {
+  try {
+    console.log('==== Obteniendo rutinas del coach ====');
+    console.log('ID de usuario del coach:', req.user.id);
+    
+    const pool = await connectDB();
+    
+    // Obtener el id_coach del usuario actual
+    const coachResult = await pool.request()
+      .input('id_usuario', sql.Int, req.user.id)
+      .query(`
+        SELECT id_coach 
+        FROM Coaches 
+        WHERE id_usuario = @id_usuario
+      `);
+    
+    if (coachResult.recordset.length === 0) {
+      console.log('⚠️ Coach no encontrado para el id_usuario:', req.user.id);
+      return res.status(404).json({ message: 'Coach no encontrado' });
+    }
+    
+    const coachId = coachResult.recordset[0].id_coach;
+    console.log('ID del coach obtenido:', coachId);
+    
+    // Obtener las rutinas del coach
+    const routinesResult = await pool.request()
+      .input('id_coach', sql.Int, coachId)
+      .query(`
+        SELECT 
+          id_rutina,
+          nombre,
+          descripcion,
+          objetivo,
+          nivel_dificultad,
+          duracion_estimada,
+          fecha_creacion
+        FROM 
+          Rutinas
+        WHERE 
+          id_coach = @id_coach
+        ORDER BY
+          fecha_creacion DESC
+      `);
+    
+    console.log('Total de rutinas encontradas:', routinesResult.recordset.length);
+    
+    res.json(routinesResult.recordset);
+  } catch (error) {
+    console.error('Error al obtener rutinas del coach:', error);
+    res.status(500).json({ message: 'Error al obtener rutinas' });
+  }
+});
 // Middleware para verificar rol de coach
 const coachMiddleware = (req, res, next) => {
   if (req.user.type !== 'coach') {
@@ -299,6 +350,244 @@ router.get('/pending-requests', authMiddleware, async (req, res) => {
   }
 });
 
+// Agregar esta nueva ruta a routes/coach.js
+
+// Actualizar perfil de coach
+router.post('/update-profile', authMiddleware, async (req, res) => {
+  try {
+    console.log('Recibida solicitud para actualizar perfil de coach:', req.body);
+    
+    // Extraer los datos del cuerpo de la solicitud
+    const { 
+      nombre, 
+      email, 
+      telefono, 
+      especialidad, 
+      certificaciones, 
+      biografia, 
+      horario_disponible, 
+      experiencia 
+    } = req.body;
+    
+    // Obtener el ID del usuario actual desde el token
+    const userId = req.user.id;
+    
+    // Validaciones básicas
+    if (!nombre || !email) {
+      return res.status(400).json({ message: 'El nombre y email son obligatorios' });
+    }
+    
+    const pool = await connectDB();
+    
+    // Iniciar una transacción para garantizar la integridad de ambas actualizaciones
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    
+    try {
+      // 1. Actualizar datos básicos en la tabla Usuarios
+      const updateUserRequest = new sql.Request(transaction);
+      updateUserRequest.input('id_usuario', sql.Int, userId);
+      updateUserRequest.input('nombre', sql.VarChar, nombre);
+      updateUserRequest.input('email', sql.VarChar, email);
+      updateUserRequest.input('telefono', sql.VarChar, telefono || null);
+      
+      const userUpdateResult = await updateUserRequest.query(`
+        UPDATE Usuarios
+        SET 
+          nombre = @nombre,
+          email = @email,
+          telefono = @telefono
+        WHERE 
+          id_usuario = @id_usuario AND tipo_usuario = 'coach';
+          
+        SELECT @@ROWCOUNT AS UserUpdated;
+      `);
+      
+      const userUpdated = userUpdateResult.recordset[0].UserUpdated;
+      if (userUpdated === 0) {
+        // Si no se actualizó ningún registro, el usuario no existe o no es un coach
+        await transaction.rollback();
+        return res.status(404).json({ message: 'Usuario no encontrado o no es un coach' });
+      }
+      
+      // 2. Buscar si existe el registro en la tabla Coaches
+      const coachCheckRequest = new sql.Request(transaction);
+      coachCheckRequest.input('id_usuario', sql.Int, userId);
+      
+      const coachCheckResult = await coachCheckRequest.query(`
+        SELECT id_coach 
+        FROM Coaches 
+        WHERE id_usuario = @id_usuario
+      `);
+      
+      let coachId;
+      
+      if (coachCheckResult.recordset.length > 0) {
+        // 3a. Si existe, actualizar los datos del coach
+        coachId = coachCheckResult.recordset[0].id_coach;
+        
+        const updateCoachRequest = new sql.Request(transaction);
+        updateCoachRequest.input('id_coach', sql.Int, coachId);
+        updateCoachRequest.input('especialidad', sql.NVarChar, especialidad || null);
+        updateCoachRequest.input('certificaciones', sql.NVarChar, certificaciones || null);
+        updateCoachRequest.input('biografia', sql.NVarChar, biografia || null);
+        updateCoachRequest.input('horario_disponible', sql.NVarChar, horario_disponible || null);
+        updateCoachRequest.input('experiencia', sql.NVarChar, experiencia || null);
+        
+        await updateCoachRequest.query(`
+          UPDATE Coaches
+          SET 
+            especialidad = @especialidad,
+            certificaciones = @certificaciones,
+            biografia = @biografia,
+            horario_disponible = @horario_disponible,
+            experiencia = @experiencia
+          WHERE 
+            id_coach = @id_coach;
+        `);
+        
+        console.log('Información de coach actualizada, ID:', coachId);
+      } else {
+        // 3b. Si no existe, crear un nuevo registro en la tabla Coaches
+        const insertCoachRequest = new sql.Request(transaction);
+        insertCoachRequest.input('id_usuario', sql.Int, userId);
+        insertCoachRequest.input('especialidad', sql.NVarChar, especialidad || 'General');
+        insertCoachRequest.input('certificaciones', sql.NVarChar, certificaciones || null);
+        insertCoachRequest.input('biografia', sql.NVarChar, biografia || null);
+        insertCoachRequest.input('horario_disponible', sql.NVarChar, horario_disponible || null);
+        insertCoachRequest.input('experiencia', sql.NVarChar, experiencia || null);
+        
+        const insertCoachResult = await insertCoachRequest.query(`
+          INSERT INTO Coaches (
+            id_usuario, 
+            especialidad, 
+            certificaciones, 
+            biografia, 
+            horario_disponible,
+            experiencia
+          )
+          VALUES (
+            @id_usuario,
+            @especialidad,
+            @certificaciones,
+            @biografia,
+            @horario_disponible,
+            @experiencia
+          );
+          
+          SELECT SCOPE_IDENTITY() AS id_coach;
+        `);
+        
+        coachId = insertCoachResult.recordset[0].id_coach;
+        console.log('Nuevo registro de coach creado, ID:', coachId);
+      }
+      
+      // 4. Obtener los datos actualizados para devolverlos como respuesta
+      const getUpdatedDataRequest = new sql.Request(transaction);
+      getUpdatedDataRequest.input('id_usuario', sql.Int, userId);
+      
+      const updatedDataResult = await getUpdatedDataRequest.query(`
+        SELECT 
+          u.id_usuario,
+          u.nombre,
+          u.email,
+          u.telefono,
+          u.tipo_usuario,
+          c.id_coach,
+          c.especialidad,
+          c.certificaciones,
+          c.biografia,
+          c.horario_disponible,
+          c.experiencia
+        FROM 
+          Usuarios u
+        JOIN 
+          Coaches c ON u.id_usuario = c.id_usuario
+        WHERE 
+          u.id_usuario = @id_usuario;
+      `);
+      
+      if (updatedDataResult.recordset.length === 0) {
+        await transaction.rollback();
+        return res.status(500).json({ message: 'Error al obtener los datos actualizados' });
+      }
+      
+      // Confirmar la transacción
+      await transaction.commit();
+      
+      // Formatear los datos de manera adecuada para el frontend
+      const userData = updatedDataResult.recordset[0];
+      const response = {
+        id_usuario: userData.id_usuario,
+        nombre: userData.nombre,
+        email: userData.email,
+        telefono: userData.telefono,
+        tipo_usuario: userData.tipo_usuario,
+        id_coach: userData.id_coach,
+        especialidad: userData.especialidad,
+        certificaciones: userData.certificaciones,
+        biografia: userData.biografia,
+        horario_disponible: userData.horario_disponible,
+        experiencia: userData.experiencia
+      };
+      
+      console.log('Datos actualizados correctamente:', response);
+      res.json(response);
+      
+    } catch (transactionError) {
+      // Si ocurre un error, hacer rollback
+      await transaction.rollback();
+      throw transactionError;
+    }
+    
+  } catch (error) {
+    console.error('Error al actualizar perfil de coach:', error);
+    res.status(500).json({ 
+      message: 'Error al actualizar perfil', 
+      details: error.message 
+    });
+  }
+});
+
+// GET /coach/clients/:clientId
+router.get('/clients/:clientId', authMiddleware, coachMiddleware, async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const pool = await connectDB();
+    
+    // Verificar si el cliente está asignado a este coach
+    const result = await pool.request()
+      .input('id_coach', sql.Int, req.user.coach_id)
+      .input('id_usuario', sql.Int, clientId)
+      .query(`
+        SELECT 
+          u.id_usuario,
+          u.nombre,
+          u.email,
+          u.telefono,
+          a.fecha_asignacion,
+          a.estado
+        FROM 
+          Asignaciones_Coach_Cliente a
+        JOIN 
+          Usuarios u ON a.id_usuario = u.id_usuario
+        WHERE 
+          a.id_coach = @id_coach AND 
+          u.id_usuario = @id_usuario AND
+          a.estado = 'activa'
+      `);
+    
+    if (result.recordset.length === 0) {
+      return res.status(404).json({ message: 'Cliente no encontrado o no asignado a este coach' });
+    }
+    
+    res.json(result.recordset[0]);
+  } catch (error) {
+    console.error('Error al obtener cliente:', error);
+    res.status(500).json({ message: 'Error al obtener cliente' });
+  }
+});
+
 // Aceptar solicitud
 router.post('/accept-request/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
@@ -375,6 +664,158 @@ router.post('/accept-request/:id', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error al aceptar solicitud:', error);
     res.status(500).json({ message: 'Error al aceptar solicitud' });
+  }
+});
+
+router.post('/assign-routine', authMiddleware, async (req, res) => {
+  try {
+    console.log('==== Asignando rutina a cliente ====');
+    const { userId, routineId } = req.body;
+    
+    if (!userId || !routineId) {
+      return res.status(400).json({ message: 'Se requiere ID de usuario y rutina' });
+    }
+    
+    console.log('ID de usuario cliente:', userId);
+    console.log('ID de rutina:', routineId);
+    
+    const pool = await connectDB();
+    
+    // Verificar que la rutina exista
+    const routineResult = await pool.request()
+      .input('id_rutina', sql.Int, routineId)
+      .query(`
+        SELECT * FROM Rutinas WHERE id_rutina = @id_rutina
+      `);
+    
+    if (routineResult.recordset.length === 0) {
+      return res.status(404).json({ message: 'Rutina no encontrada' });
+    }
+    
+    // Verificar que el usuario exista y está asignado a este coach
+    const coachResult = await pool.request()
+      .input('id_usuario', sql.Int, req.user.id)
+      .query(`
+        SELECT id_coach 
+        FROM Coaches 
+        WHERE id_usuario = @id_usuario
+      `);
+    
+    if (coachResult.recordset.length === 0) {
+      return res.status(404).json({ message: 'Coach no encontrado' });
+    }
+    
+    const coachId = coachResult.recordset[0].id_coach;
+    
+    // Verificar que el cliente está asignado a este coach
+    const clientResult = await pool.request()
+      .input('id_coach', sql.Int, coachId)
+      .input('id_usuario', sql.Int, userId)
+      .query(`
+        SELECT * 
+        FROM Asignaciones_Coach_Cliente
+        WHERE id_coach = @id_coach AND id_usuario = @id_usuario AND estado = 'activa'
+      `);
+    
+    if (clientResult.recordset.length === 0) {
+      return res.status(403).json({ message: 'Este cliente no está asignado a tu cuenta' });
+    }
+    
+    // Crear una nueva asignación de rutina
+    // Primero, verificar si ya existe una asignación activa de esta rutina para este usuario
+    const existingAssignmentResult = await pool.request()
+      .input('id_rutina', sql.Int, routineId)
+      .input('id_usuario', sql.Int, userId)
+      .query(`
+        SELECT *
+        FROM Asignaciones_Rutina
+        WHERE id_rutina = @id_rutina 
+          AND id_usuario = @id_usuario 
+          AND estado = 'activa'
+      `);
+    
+    if (existingAssignmentResult.recordset.length > 0) {
+      // Ya existe una asignación activa, no crear una nueva
+      return res.json({ 
+        message: 'Este usuario ya tiene esta rutina asignada',
+        assignmentId: existingAssignmentResult.recordset[0].id_asignacion_rutina
+      });
+    }
+    
+    // Desactivar cualquier asignación de rutina activa anterior para este usuario
+    await pool.request()
+      .input('id_usuario', sql.Int, userId)
+      .query(`
+        UPDATE Asignaciones_Rutina
+        SET estado = 'completada'
+        WHERE id_usuario = @id_usuario AND estado = 'activa'
+      `);
+    
+    // Crear nueva asignación
+    const assignmentResult = await pool.request()
+      .input('id_rutina', sql.Int, routineId)
+      .input('id_usuario', sql.Int, userId)
+      .input('fecha_asignacion', sql.Date, new Date())
+      .input('fecha_inicio', sql.Date, new Date())
+      .query(`
+        INSERT INTO Asignaciones_Rutina (
+          id_rutina,
+          id_usuario,
+          fecha_asignacion,
+          fecha_inicio,
+          estado,
+          notas_coach
+        )
+        VALUES (
+          @id_rutina,
+          @id_usuario,
+          @fecha_asignacion,
+          @fecha_inicio,
+          'activa',
+          'Asignada por entrenador'
+        );
+        
+        SELECT SCOPE_IDENTITY() AS id_asignacion_rutina;
+      `);
+    
+    // Obtener el ID de la asignación
+    const assignmentId = assignmentResult.recordset[0].id_asignacion_rutina;
+    console.log('Asignación de rutina creada, ID:', assignmentId);
+    
+    // Crear notificación para el cliente
+    await pool.request()
+      .input('id_usuario', sql.Int, userId)
+      .input('id_origen', sql.Int, req.user.id)
+      .input('titulo', sql.NVarChar, 'Nueva rutina asignada')
+      .input('mensaje', sql.NVarChar, `Tu entrenador te ha asignado una nueva rutina: ${routineResult.recordset[0].nombre}`)
+      .query(`
+        INSERT INTO Notificaciones (
+          id_usuario,
+          tipo,
+          titulo,
+          mensaje,
+          fecha_creacion,
+          leida,
+          id_origen
+        )
+        VALUES (
+          @id_usuario,
+          'nueva_rutina',
+          @titulo,
+          @mensaje,
+          GETDATE(),
+          0,
+          @id_origen
+        )
+      `);
+    
+    res.json({ 
+      message: 'Rutina asignada correctamente',
+      assignmentId: assignmentId
+    });
+  } catch (error) {
+    console.error('Error al asignar rutina:', error);
+    res.status(500).json({ message: 'Error al asignar rutina' });
   }
 });
 
@@ -458,4 +899,3 @@ router.post('/reject-request/:id', authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
-

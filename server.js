@@ -123,6 +123,18 @@ const path = require('path');
 require('dotenv').config();
 const { connectDB } = require('./config/db');
 
+/// Ahora sí puedes importar las rutas y hacer app.use
+const physicalMeasurementsRoutes = require('/routes/physicalMeasurements');
+app.use('/api/client', physicalMeasurementsRoutes);
+
+
+app.use('/api/auth', authRoutes);
+app.use('/api/coach', coachRoutes);
+app.use('/api/client', clientRoutes);
+app.use('/api/client', physicalMeasurementsRoutes); // Montar las rutas de medidas físicas
+app.use('/api/admin', adminRoutes);
+app.use('/api', clientMembresiasRoutes);
+
 // Importar rutas
 const authRoutes = require('./routes/auth');
 const coachRoutes = require('./routes/coach');

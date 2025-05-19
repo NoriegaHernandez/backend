@@ -6,6 +6,7 @@ const { connectDB, sql } = require('../config/db');
 const authMiddleware = require('../middleware/auth');
 
 // Middleware para verificar rol de cliente
+// Middleware para verificar rol de cliente
 const clientMiddleware = (req, res, next) => {
   if (req.user.type !== 'cliente') {
     return res.status(403).json({ message: 'Acceso denegado. Se requiere rol de cliente' });
@@ -13,6 +14,87 @@ const clientMiddleware = (req, res, next) => {
   next();
 };
 
+// Obtener rutinas asignadas al cliente
+router.get('/routines', authMiddleware, clientMiddleware, async (req, res) => {
+  try {
+    console.log('==== Obteniendo rutinas del cliente ====');
+    console.log('ID de usuario del cliente:', req.user.id);
+    
+    const pool = await connectDB();
+    
+    // Obtener rutinas asignadas activas
+    const result = await pool.request()
+      .input('id_usuario', sql.Int, req.user.id)
+      .query(`
+        SELECT 
+          ar.id_asignacion_rutina,
+          r.id_rutina,
+          r.nombre,
+          r.descripcion,
+          r.objetivo,
+          r.nivel_dificultad,
+          r.duracion_estimada,
+          ar.fecha_asignacion,
+          ar.fecha_inicio,
+          ar.estado,
+          c.id_coach,
+          u.nombre AS nombre_coach
+        FROM 
+          Asignaciones_Rutina ar
+        JOIN 
+          Rutinas r ON ar.id_rutina = r.id_rutina
+        JOIN 
+          Coaches c ON r.id_coach = c.id_coach
+        JOIN
+          Usuarios u ON c.id_usuario = u.id_usuario
+        WHERE 
+          ar.id_usuario = @id_usuario AND 
+          ar.estado = 'activa'
+        ORDER BY 
+          ar.fecha_asignacion DESC
+      `);
+      
+    console.log('Rutinas encontradas:', result.recordset.length);
+    
+    // Si hay rutinas, obtener los detalles (ejercicios) de cada rutina
+    if (result.recordset.length > 0) {
+      for (let rutina of result.recordset) {
+        const ejerciciosResult = await pool.request()
+          .input('id_rutina', sql.Int, rutina.id_rutina)
+          .query(`
+            SELECT 
+              dr.id_detalle,
+              e.id_ejercicio,
+              e.nombre,
+              e.descripcion,
+              e.instrucciones,
+              e.grupos_musculares,
+              e.imagen_url,
+              dr.series,
+              dr.repeticiones,
+              dr.descanso_segundos,
+              dr.notas,
+              dr.orden
+            FROM 
+              Detalles_Rutina dr
+            JOIN 
+              Ejercicios e ON dr.id_ejercicio = e.id_ejercicio
+            WHERE 
+              dr.id_rutina = @id_rutina
+            ORDER BY 
+              dr.orden
+          `);
+          
+        rutina.ejercicios = ejerciciosResult.recordset;
+      }
+    }
+    
+    res.json(result.recordset);
+  } catch (error) {
+    console.error('Error al obtener rutinas del cliente:', error);
+    res.status(500).json({ message: 'Error al obtener rutinas' });
+  }
+});
 // Ruta de prueba
 router.get('/test', (req, res) => {
   res.json({ message: 'API de cliente funcionando correctamente' });
