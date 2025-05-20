@@ -372,6 +372,114 @@ router.post('/routine', auth, verifyCoach, async (req, res) => {
 //       return res.status(400).json({ message: 'ID de rutina y cliente son requeridos' });
 //     }
 // En server/routes/routines.js o donde tengas el endpoint
+router.post('/assign-routine-with-days', authMiddleware, async (req, res) => {
+  const { clientId, routineId, trainingDays, startDate, endDate } = req.body;
+
+  // Validar datos de entrada
+  if (!clientId || !routineId || !trainingDays || !Array.isArray(trainingDays) || trainingDays.length === 0) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Datos incompletos. Se requiere ID de cliente, ID de rutina y al menos un día de entrenamiento' 
+    });
+  }
+
+  try {
+    // Validar que el usuario logueado sea un coach
+    const userId = req.user.id;
+    const coachCheck = await pool.request()
+      .input('userId', sql.Int, userId)
+      .query(`
+        SELECT c.id_coach 
+        FROM Coaches c 
+        JOIN Usuarios u ON c.id_usuario = u.id_usuario 
+        WHERE u.id_usuario = @userId AND u.tipo_usuario = 'coach'
+      `);
+      
+    if (coachCheck.recordset.length === 0) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'No autorizado. Solo los coaches pueden asignar rutinas' 
+      });
+    }
+    
+    const coachId = coachCheck.recordset[0].id_coach;
+    
+    // Validar que la rutina pertenezca al coach
+    const routineCheck = await pool.request()
+      .input('routineId', sql.Int, routineId)
+      .input('coachId', sql.Int, coachId)
+      .query(`
+        SELECT id_rutina 
+        FROM Rutinas 
+        WHERE id_rutina = @routineId AND id_coach = @coachId
+      `);
+      
+    if (routineCheck.recordset.length === 0) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'No autorizado. La rutina no pertenece a este coach' 
+      });
+    }
+    
+    // Validar que el cliente esté asignado al coach
+    const clientCheck = await pool.request()
+      .input('clientId', sql.Int, clientId)
+      .input('coachId', sql.Int, coachId)
+      .query(`
+        SELECT * 
+        FROM Asignaciones_Coach_Cliente 
+        WHERE id_usuario = @clientId AND id_coach = @coachId AND estado = 'activa'
+      `);
+      
+    if (clientCheck.recordset.length === 0) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'El cliente no está asignado a este coach o la asignación no está activa' 
+      });
+    }
+
+    // Verificar que los días de la semana sean válidos
+    const validDays = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+    const invalidDays = trainingDays.filter(day => !validDays.includes(day.toLowerCase()));
+    
+    if (invalidDays.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Días de entrenamiento inválidos: ${invalidDays.join(', ')}. Los días válidos son: ${validDays.join(', ')}` 
+      });
+    }
+    
+    // Preparar las fechas (si están proporcionadas)
+    let startDateParam = startDate ? new Date(startDate) : null;
+    let endDateParam = endDate ? new Date(endDate) : null;
+    
+    // Convertir los días de entrenamiento a formato JSON para el procedimiento almacenado
+    const trainingDaysJson = JSON.stringify(trainingDays.map(day => day.toLowerCase()));
+    
+    // Llamar al procedimiento almacenado
+    const result = await pool.request()
+      .input('id_usuario', sql.Int, clientId)
+      .input('id_rutina', sql.Int, routineId)
+      .input('fecha_inicio', sql.Date, startDateParam)
+      .input('fecha_fin', sql.Date, endDateParam)
+      .input('dias_semana', sql.NVarChar(sql.MAX), trainingDaysJson)
+      .execute('sp_AsignarRutinaConDias');
+    
+    res.json({
+      success: true,
+      message: 'Rutina asignada correctamente con días específicos',
+      data: result.recordset[0]
+    });
+    
+  } catch (error) {
+    console.error('Error al asignar rutina con días:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error en el servidor al asignar rutina con días', 
+      error: error.message 
+    });
+  }
+});
 router.post('/assign-routine', auth, verifyCoach, async (req, res) => {
   try {
     // Log para depuración
