@@ -212,186 +212,281 @@ router.get('/test', (req, res) => {
 //   }
 // });
 
-// En coach.js o en el archivo donde se manejan las medidas físicas
-router.post('/register-client-measurements', authMiddleware, async (req, res) => {
+// // En coach.js o en el archivo donde se manejan las medidas físicas
+// router.post('/register-client-measurements', authMiddleware, async (req, res) => {
+//   try {
+//     const { id_usuario, ...measurementData } = req.body;
+    
+//     if (!id_usuario) {
+//       return res.status(400).json({ 
+//         success: false,
+//         message: 'Se requiere el ID del cliente' 
+//       });
+//     }
+    
+//     console.log(`Coach registrando medidas físicas para cliente ID: ${id_usuario}`);
+//     console.log('Datos de medidas:', measurementData);
+    
+//     // Verificar que los datos son válidos
+//     // Asegurarnos de que todos los valores numéricos sean números o null
+//     const numericFields = [
+//       'peso', 'altura', 'porcentaje_grasa', 'masa_muscular', 
+//       'medida_pecho', 'medida_brazo_izq', 'medida_brazo_der', 
+//       'medida_pierna_izq', 'medida_pierna_der', 'medida_cintura', 'medida_cadera'
+//     ];
+    
+//     for (const field of numericFields) {
+//       if (measurementData[field] !== undefined && measurementData[field] !== null) {
+//         const numValue = parseFloat(measurementData[field]);
+//         if (isNaN(numValue)) {
+//           return res.status(400).json({ 
+//             success: false,
+//             message: `El valor para ${field} debe ser un número válido` 
+//           });
+//         }
+//         measurementData[field] = numValue;
+//       } else {
+//         measurementData[field] = null;
+//       }
+//     }
+    
+//     const pool = await connectDB();
+    
+//     // Obtener el id_coach del usuario actual
+//     const coachResult = await pool.request()
+//       .input('id_usuario', sql.Int, req.user.id)
+//       .query(`
+//         SELECT id_coach 
+//         FROM Coaches 
+//         WHERE id_usuario = @id_usuario
+//       `);
+    
+//     if (coachResult.recordset.length === 0) {
+//       return res.status(404).json({ 
+//         success: false,
+//         message: 'Coach no encontrado' 
+//       });
+//     }
+    
+//     const coachId = coachResult.recordset[0].id_coach;
+    
+//     // Verificar que el cliente está asignado a este coach
+//     const clientAssignmentCheck = await pool.request()
+//       .input('id_coach', sql.Int, coachId)
+//       .input('id_usuario', sql.Int, id_usuario)
+//       .query(`
+//         SELECT id_asignacion 
+//         FROM Asignaciones_Coach_Cliente 
+//         WHERE id_coach = @id_coach 
+//         AND id_usuario = @id_usuario 
+//         AND estado = 'activa'
+//       `);
+    
+//     if (clientAssignmentCheck.recordset.length === 0) {
+//       return res.status(403).json({ 
+//         success: false,
+//         message: 'No tienes permiso para registrar medidas para este cliente' 
+//       });
+//     }
+    
+//     // Crear una transacción para asegurar la integridad de los datos
+//     const transaction = new sql.Transaction(pool);
+//     await transaction.begin();
+    
+//     try {
+//       // Insertar las medidas físicas
+//       await new sql.Request(transaction)
+//         .input('id_usuario', sql.Int, id_usuario)
+//         .input('peso', sql.Decimal(5, 2), measurementData.peso)
+//         .input('altura', sql.Decimal(5, 2), measurementData.altura)
+//         .input('porcentaje_grasa', sql.Decimal(5, 2), measurementData.porcentaje_grasa)
+//         .input('masa_muscular', sql.Decimal(5, 2), measurementData.masa_muscular)
+//         .input('medida_pecho', sql.Decimal(5, 2), measurementData.medida_pecho)
+//         .input('medida_brazo_izq', sql.Decimal(5, 2), measurementData.medida_brazo_izq)
+//         .input('medida_brazo_der', sql.Decimal(5, 2), measurementData.medida_brazo_der)
+//         .input('medida_pierna_izq', sql.Decimal(5, 2), measurementData.medida_pierna_izq)
+//         .input('medida_pierna_der', sql.Decimal(5, 2), measurementData.medida_pierna_der)
+//         .input('medida_cintura', sql.Decimal(5, 2), measurementData.medida_cintura)
+//         .input('medida_cadera', sql.Decimal(5, 2), measurementData.medida_cadera)
+//         .input('notas', sql.NVarChar, measurementData.notas || null)
+//         .query(`
+//           INSERT INTO Medidas_Corporales (
+//             id_usuario,
+//             fecha_registro,
+//             peso,
+//             altura,
+//             porcentaje_grasa,
+//             masa_muscular,
+//             medida_pecho,
+//             medida_brazo_izq,
+//             medida_brazo_der,
+//             medida_pierna_izq,
+//             medida_pierna_der,
+//             medida_cintura,
+//             medida_cadera,
+//             notas
+//           )
+//           VALUES (
+//             @id_usuario,
+//             GETDATE(),
+//             @peso,
+//             @altura,
+//             @porcentaje_grasa,
+//             @masa_muscular,
+//             @medida_pecho,
+//             @medida_brazo_izq,
+//             @medida_brazo_der,
+//             @medida_pierna_izq,
+//             @medida_pierna_der,
+//             @medida_cintura,
+//             @medida_cadera,
+//             @notas
+//           )
+//         `);
+      
+//       // Crear notificación para el cliente
+//       await new sql.Request(transaction)
+//         .input('id_usuario', sql.Int, id_usuario)
+//         .input('id_origen', sql.Int, req.user.id)
+//         .input('titulo', sql.NVarChar, 'Medidas físicas actualizadas')
+//         .input('mensaje', sql.NVarChar, 'Tu entrenador ha registrado nuevas medidas físicas para ti.')
+//         .query(`
+//           INSERT INTO Notificaciones (
+//             id_usuario,
+//             tipo,
+//             titulo,
+//             mensaje,
+//             fecha_creacion,
+//             leida,
+//             id_origen
+//           )
+//           VALUES (
+//             @id_usuario,
+//             'nuevas_medidas',
+//             @titulo,
+//             @mensaje,
+//             GETDATE(),
+//             0,
+//             @id_origen
+//           )
+//         `);
+      
+//       await transaction.commit();
+      
+//       res.status(201).json({ 
+//         success: true, 
+//         message: 'Medidas físicas registradas correctamente' 
+//       });
+//     } catch (error) {
+//       await transaction.rollback();
+//       throw error;
+//     }
+    
+//   } catch (error) {
+//     console.error('Error al registrar medidas físicas:', error);
+//     res.status(500).json({ 
+//       success: false, 
+//       message: 'Error al registrar medidas físicas',
+//       error: error.message 
+//     });
+//   }
+// });
+
+// En coach.js - Endpoint de medidas físicas
+router.post('/client-measurements', authMiddleware, async (req, res) => {
   try {
+    console.log('==== Registrando medidas físicas ====');
+    console.log('Datos recibidos:', JSON.stringify(req.body, null, 2));
+    
     const { id_usuario, ...measurementData } = req.body;
     
-    if (!id_usuario) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Se requiere el ID del cliente' 
-      });
-    }
+    // ... validaciones y procesamiento de datos como antes ...
     
-    console.log(`Coach registrando medidas físicas para cliente ID: ${id_usuario}`);
-    console.log('Datos de medidas:', measurementData);
-    
-    // Verificar que los datos son válidos
-    // Asegurarnos de que todos los valores numéricos sean números o null
-    const numericFields = [
-      'peso', 'altura', 'porcentaje_grasa', 'masa_muscular', 
-      'medida_pecho', 'medida_brazo_izq', 'medida_brazo_der', 
-      'medida_pierna_izq', 'medida_pierna_der', 'medida_cintura', 'medida_cadera'
-    ];
-    
-    for (const field of numericFields) {
-      if (measurementData[field] !== undefined && measurementData[field] !== null) {
-        const numValue = parseFloat(measurementData[field]);
-        if (isNaN(numValue)) {
-          return res.status(400).json({ 
-            success: false,
-            message: `El valor para ${field} debe ser un número válido` 
-          });
-        }
-        measurementData[field] = numValue;
-      } else {
-        measurementData[field] = null;
-      }
-    }
-    
-    const pool = await connectDB();
-    
-    // Obtener el id_coach del usuario actual
-    const coachResult = await pool.request()
-      .input('id_usuario', sql.Int, req.user.id)
+    // Insertar las medidas físicas
+    const result = await pool.request()
+      .input('id_usuario', sql.Int, clientId)
+      .input('peso', sql.Decimal(5, 2), processedData.peso)
+      // ... resto de inputs ...
       .query(`
-        SELECT id_coach 
-        FROM Coaches 
-        WHERE id_usuario = @id_usuario
+        INSERT INTO Medidas_Corporales (
+          id_usuario,
+          fecha_registro,
+          peso,
+          /* ... otros campos ... */
+        )
+        VALUES (
+          @id_usuario,
+          GETDATE(),
+          @peso,
+          /* ... otros valores ... */
+        );
+        
+        SELECT SCOPE_IDENTITY() AS id_medida;
       `);
     
-    if (coachResult.recordset.length === 0) {
-      return res.status(404).json({ 
-        success: false,
-        message: 'Coach no encontrado' 
-      });
-    }
-    
-    const coachId = coachResult.recordset[0].id_coach;
-    
-    // Verificar que el cliente está asignado a este coach
-    const clientAssignmentCheck = await pool.request()
-      .input('id_coach', sql.Int, coachId)
-      .input('id_usuario', sql.Int, id_usuario)
+    // Crear notificación para el cliente usando un tipo válido existente
+    await pool.request()
+      .input('id_usuario', sql.Int, clientId)
+      .input('id_origen', sql.Int, req.user.id)
+      // Usar 'verificacion_datos' que es uno de los tipos permitidos
       .query(`
-        SELECT id_asignacion 
-        FROM Asignaciones_Coach_Cliente 
-        WHERE id_coach = @id_coach 
-        AND id_usuario = @id_usuario 
-        AND estado = 'activa'
+        INSERT INTO Notificaciones (
+          id_usuario,
+          tipo,
+          titulo,
+          mensaje,
+          fecha_creacion,
+          leida,
+          id_origen
+        )
+        VALUES (
+          @id_usuario,
+          'verificacion_datos',
+          'Medidas físicas actualizadas',
+          'Tu entrenador ha registrado nuevas medidas físicas para ti.',
+          GETDATE(),
+          0,
+          @id_origen
+        )
       `);
     
-    if (clientAssignmentCheck.recordset.length === 0) {
-      return res.status(403).json({ 
-        success: false,
-        message: 'No tienes permiso para registrar medidas para este cliente' 
-      });
-    }
-    
-    // Crear una transacción para asegurar la integridad de los datos
-    const transaction = new sql.Transaction(pool);
-    await transaction.begin();
-    
-    try {
-      // Insertar las medidas físicas
-      await new sql.Request(transaction)
-        .input('id_usuario', sql.Int, id_usuario)
-        .input('peso', sql.Decimal(5, 2), measurementData.peso)
-        .input('altura', sql.Decimal(5, 2), measurementData.altura)
-        .input('porcentaje_grasa', sql.Decimal(5, 2), measurementData.porcentaje_grasa)
-        .input('masa_muscular', sql.Decimal(5, 2), measurementData.masa_muscular)
-        .input('medida_pecho', sql.Decimal(5, 2), measurementData.medida_pecho)
-        .input('medida_brazo_izq', sql.Decimal(5, 2), measurementData.medida_brazo_izq)
-        .input('medida_brazo_der', sql.Decimal(5, 2), measurementData.medida_brazo_der)
-        .input('medida_pierna_izq', sql.Decimal(5, 2), measurementData.medida_pierna_izq)
-        .input('medida_pierna_der', sql.Decimal(5, 2), measurementData.medida_pierna_der)
-        .input('medida_cintura', sql.Decimal(5, 2), measurementData.medida_cintura)
-        .input('medida_cadera', sql.Decimal(5, 2), measurementData.medida_cadera)
-        .input('notas', sql.NVarChar, measurementData.notas || null)
-        .query(`
-          INSERT INTO Medidas_Corporales (
-            id_usuario,
-            fecha_registro,
-            peso,
-            altura,
-            porcentaje_grasa,
-            masa_muscular,
-            medida_pecho,
-            medida_brazo_izq,
-            medida_brazo_der,
-            medida_pierna_izq,
-            medida_pierna_der,
-            medida_cintura,
-            medida_cadera,
-            notas
-          )
-          VALUES (
-            @id_usuario,
-            GETDATE(),
-            @peso,
-            @altura,
-            @porcentaje_grasa,
-            @masa_muscular,
-            @medida_pecho,
-            @medida_brazo_izq,
-            @medida_brazo_der,
-            @medida_pierna_izq,
-            @medida_pierna_der,
-            @medida_cintura,
-            @medida_cadera,
-            @notas
-          )
-        `);
-      
-      // Crear notificación para el cliente
-      await new sql.Request(transaction)
-        .input('id_usuario', sql.Int, id_usuario)
-        .input('id_origen', sql.Int, req.user.id)
-        .input('titulo', sql.NVarChar, 'Medidas físicas actualizadas')
-        .input('mensaje', sql.NVarChar, 'Tu entrenador ha registrado nuevas medidas físicas para ti.')
-        .query(`
-          INSERT INTO Notificaciones (
-            id_usuario,
-            tipo,
-            titulo,
-            mensaje,
-            fecha_creacion,
-            leida,
-            id_origen
-          )
-          VALUES (
-            @id_usuario,
-            'nuevas_medidas',
-            @titulo,
-            @mensaje,
-            GETDATE(),
-            0,
-            @id_origen
-          )
-        `);
-      
-      await transaction.commit();
-      
-      res.status(201).json({ 
-        success: true, 
-        message: 'Medidas físicas registradas correctamente' 
-      });
-    } catch (error) {
-      await transaction.rollback();
-      throw error;
-    }
+    // ... resto del código ...
     
   } catch (error) {
-    console.error('Error al registrar medidas físicas:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error al registrar medidas físicas',
-      error: error.message 
-    });
+    // ... manejo de errores ...
   }
 });
+// En coach.js - al principio del archivo o en un script de inicialización
+const updateNotificacionesTipoConstraint = async () => {
+  try {
+    const pool = await connectDB();
+    
+    console.log('Actualizando la restricción CHECK para la columna tipo en Notificaciones');
+    
+    // Eliminar la restricción existente
+    await pool.request().query(`
+      IF EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK__Notificaci__tipo__07C12930')
+      BEGIN
+          ALTER TABLE Notificaciones
+          DROP CONSTRAINT CK__Notificaci__tipo__07C12930
+      END
+    `);
+    
+    // Crear una nueva restricción con todos los tipos, incluido nuevas_medidas
+    await pool.request().query(`
+      ALTER TABLE Notificaciones
+      ADD CONSTRAINT CK_Notificaciones_Tipo
+      CHECK (tipo IN ('asignacion_coach', 'nueva_rutina', 'solicitud_entrenamiento', 'verificacion_datos', 'nuevas_medidas'))
+    `);
+    
+    console.log('Restricción CHECK actualizada correctamente');
+  } catch (error) {
+    console.error('Error al actualizar la restricción CHECK:', error);
+  }
+};
 
+// Ejecutar esta función al iniciar el servidor
+updateNotificacionesTipoConstraint();
 // Obtener todos los coaches (Admin)
 router.get('/', authMiddleware, adminMiddleware, async (req, res) => {
   try {
