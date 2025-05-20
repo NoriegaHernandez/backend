@@ -2180,7 +2180,140 @@ router.get('/routine/:routineId', authMiddleware, verifyCoach, async (req, res) 
 });
 
 // Get clients who have this routine assigned
-router.get('/routine/:routineId/assignments', authMiddleware, verifyCoach, async (req, res) => {
+// router.get('/routine/:routineId/assignments', authMiddleware, verifyCoach, async (req, res) => {
+//   try {
+//     const { routineId } = req.params;
+    
+//     console.log('==== Obteniendo asignaciones de rutina ====');
+//     console.log('ID de rutina:', routineId);
+    
+//     const pool = await connectDB();
+    
+//     // Obtener el id_coach del usuario actual
+//     const coachId = await getCoachIdFromUserId(req.user.id);
+    
+//     // Verificar que la rutina pertenece a este coach
+//     const routineCheckResult = await pool.request()
+//       .input('routineId', sql.Int, routineId)
+//       .input('coachId', sql.Int, coachId)
+//       .query(`
+//         SELECT id_rutina
+//         FROM Rutinas
+//         WHERE id_rutina = @routineId AND id_coach = @coachId
+//       `);
+    
+//     if (routineCheckResult.recordset.length === 0) {
+//       return res.status(404).json({ message: 'Rutina no encontrada o no tienes acceso a ella' });
+//     }
+    
+//     // Obtener los clientes asignados a esta rutina
+//     const assignmentsResult = await pool.request()
+//       .input('routineId', sql.Int, routineId)
+//       .query(`
+//         SELECT 
+//           ar.id_asignacion_rutina,
+//           u.id_usuario,
+//           u.nombre,
+//           u.email,
+//           ar.fecha_asignacion,
+//           ar.estado
+//         FROM 
+//           Asignaciones_Rutina ar
+//         JOIN 
+//           Usuarios u ON ar.id_usuario = u.id_usuario
+//         JOIN
+//           Asignaciones_Coach_Cliente acc ON u.id_usuario = acc.id_usuario
+//         WHERE 
+//           ar.id_rutina = @routineId AND
+//           acc.id_coach = @coachId AND
+//           acc.estado = 'activa'
+//         ORDER BY
+//           ar.fecha_asignacion DESC
+//       `);
+    
+//     res.json(assignmentsResult.recordset);
+//   } catch (error) {
+//     console.error('Error al obtener asignaciones de la rutina:', error);
+//     res.status(500).json({ message: 'Error al obtener asignaciones de la rutina' });
+//   }
+// });
+
+
+// Obtener clientes con una rutina asignada
+// Obtener clientes con una rutina asignada
+// router.get('/routine/:routineId/assignments', authMiddleware, async (req, res) => {
+//   try {
+//     const { routineId } = req.params;
+    
+//     console.log('==== Obteniendo asignaciones de rutina ====');
+//     console.log('ID de rutina:', routineId);
+    
+//     const pool = await connectDB();
+    
+//     // Obtener el id_coach del usuario actual - CORREGIDO
+//     const coachResult = await pool.request()
+//       .input('id_usuario', sql.Int, req.user.id)
+//       .query(`
+//         SELECT id_coach 
+//         FROM Coaches 
+//         WHERE id_usuario = @id_usuario
+//       `);
+    
+//     if (coachResult.recordset.length === 0) {
+//       return res.status(404).json({ message: 'Coach no encontrado' });
+//     }
+    
+//     const coachId = coachResult.recordset[0].id_coach;
+    
+//     // Verificar que la rutina pertenece a este coach
+//     const routineCheckResult = await pool.request()
+//       .input('routineId', sql.Int, routineId)
+//       .input('coachId', sql.Int, coachId)
+//       .query(`
+//         SELECT id_rutina
+//         FROM Rutinas
+//         WHERE id_rutina = @routineId AND id_coach = @coachId
+//       `);
+    
+//     if (routineCheckResult.recordset.length === 0) {
+//       return res.status(404).json({ message: 'Rutina no encontrada o no tienes acceso a ella' });
+//     }
+    
+//     // Obtener los clientes asignados a esta rutina
+//     const assignmentsResult = await pool.request()
+//       .input('routineId', sql.Int, routineId)
+//       .input('coachId', sql.Int, coachId)  // Asegúrate de que coachId está disponible aquí
+//       .query(`
+//         SELECT 
+//           ar.id_asignacion_rutina,
+//           u.id_usuario,
+//           u.nombre,
+//           u.email,
+//           ar.fecha_asignacion,
+//           ar.estado
+//         FROM 
+//           Asignaciones_Rutina ar
+//         JOIN 
+//           Usuarios u ON ar.id_usuario = u.id_usuario
+//         JOIN
+//           Asignaciones_Coach_Cliente acc ON u.id_usuario = acc.id_usuario
+//         WHERE 
+//           ar.id_rutina = @routineId AND
+//           acc.id_coach = @coachId AND
+//           acc.estado = 'activa'
+//         ORDER BY
+//           ar.fecha_asignacion DESC
+//       `);
+    
+//     res.json(assignmentsResult.recordset);
+//   } catch (error) {
+//     console.error('Error al obtener asignaciones de la rutina:', error);
+//     res.status(500).json({ message: 'Error al obtener asignaciones de la rutina' });
+//   }
+// });
+
+// En coach.js
+router.get('/routine/:routineId/assignments', authMiddleware, async (req, res) => {
   try {
     const { routineId } = req.params;
     
@@ -2190,7 +2323,19 @@ router.get('/routine/:routineId/assignments', authMiddleware, verifyCoach, async
     const pool = await connectDB();
     
     // Obtener el id_coach del usuario actual
-    const coachId = await getCoachIdFromUserId(req.user.id);
+    const coachResult = await pool.request()
+      .input('id_usuario', sql.Int, req.user.id)
+      .query(`
+        SELECT id_coach 
+        FROM Coaches 
+        WHERE id_usuario = @id_usuario
+      `);
+    
+    if (coachResult.recordset.length === 0) {
+      return res.status(404).json({ message: 'Coach no encontrado' });
+    }
+    
+    const coachId = coachResult.recordset[0].id_coach;
     
     // Verificar que la rutina pertenece a este coach
     const routineCheckResult = await pool.request()
@@ -2209,6 +2354,7 @@ router.get('/routine/:routineId/assignments', authMiddleware, verifyCoach, async
     // Obtener los clientes asignados a esta rutina
     const assignmentsResult = await pool.request()
       .input('routineId', sql.Int, routineId)
+      .input('coachId', sql.Int, coachId)
       .query(`
         SELECT 
           ar.id_asignacion_rutina,
@@ -2221,12 +2367,9 @@ router.get('/routine/:routineId/assignments', authMiddleware, verifyCoach, async
           Asignaciones_Rutina ar
         JOIN 
           Usuarios u ON ar.id_usuario = u.id_usuario
-        JOIN
-          Asignaciones_Coach_Cliente acc ON u.id_usuario = acc.id_usuario
         WHERE 
           ar.id_rutina = @routineId AND
-          acc.id_coach = @coachId AND
-          acc.estado = 'activa'
+          ar.estado = 'activa'
         ORDER BY
           ar.fecha_asignacion DESC
       `);
