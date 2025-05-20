@@ -66,18 +66,151 @@ router.get('/routines', authMiddleware, async (req, res) => {
   }
 });
 // Middleware para verificar rol de coach
-const coachMiddleware = (req, res, next) => {
+// const coachMiddleware = (req, res, next) => {
+//   if (req.user.type !== 'coach') {
+//     return res.status(403).json({ message: 'Acceso denegado. Se requiere rol de coach' });
+//   }
+//   next();
+// };
+// Middleware para verificar rol de coach
+const coachMiddleware = async (req, res, next) => {
   if (req.user.type !== 'coach') {
     return res.status(403).json({ message: 'Acceso denegado. Se requiere rol de coach' });
   }
-  next();
+  
+  try {
+    // Obtener id_coach basado en id_usuario
+    const pool = await connectDB();
+    const result = await pool.request()
+      .input('id_usuario', sql.Int, req.user.id)
+      .query('SELECT id_coach FROM Coaches WHERE id_usuario = @id_usuario');
+    
+    if (result.recordset.length === 0) {
+      return res.status(403).json({ message: 'No se encontró información de coach para este usuario' });
+    }
+    
+    // Agregar id_coach a la solicitud para uso posterior
+    req.user.id_coach = result.recordset[0].id_coach;
+    next();
+  } catch (error) {
+    console.error('Error en middleware de coach:', error);
+    return res.status(500).json({ message: 'Error en la verificación de coach' });
+  }
 };
-
 // Ruta de prueba
 router.get('/test', (req, res) => {
   res.json({ message: 'API de coach funcionando correctamente' });
 });
-
+// Registrar medidas físicas de un cliente
+router.post('/register-client-measurements', authMiddleware, coachMiddleware, async (req, res) => {
+  try {
+    const { id_usuario, ...measurementData } = req.body;
+    
+    if (!id_usuario) {
+      return res.status(400).json({ message: 'Se requiere el ID del cliente' });
+    }
+    
+    console.log(`Coach registrando medidas físicas para cliente ID: ${id_usuario}`);
+    
+    // Verificar que el cliente está asignado a este coach
+    const pool = await connectDB();
+    
+    const clientAssignmentCheck = await pool.request()
+      .input('id_coach', sql.Int, req.user.id_coach)
+      .input('id_usuario', sql.Int, id_usuario)
+      .query(`
+        SELECT id_asignacion 
+        FROM Asignaciones_Coach_Cliente 
+        WHERE id_coach = @id_coach 
+        AND id_usuario = @id_usuario 
+        AND estado = 'activa'
+      `);
+    
+    if (clientAssignmentCheck.recordset.length === 0) {
+      return res.status(403).json({ message: 'No tienes permiso para registrar medidas para este cliente' });
+    }
+    
+    // Insertar las medidas físicas
+    await pool.request()
+      .input('id_usuario', sql.Int, id_usuario)
+      .input('peso', sql.Decimal(5, 2), measurementData.peso || null)
+      .input('altura', sql.Decimal(5, 2), measurementData.altura || null)
+      .input('porcentaje_grasa', sql.Decimal(5, 2), measurementData.porcentaje_grasa || null)
+      .input('masa_muscular', sql.Decimal(5, 2), measurementData.masa_muscular || null)
+      .input('medida_pecho', sql.Decimal(5, 2), measurementData.medida_pecho || null)
+      .input('medida_brazo_izq', sql.Decimal(5, 2), measurementData.medida_brazo_izq || null)
+      .input('medida_brazo_der', sql.Decimal(5, 2), measurementData.medida_brazo_der || null)
+      .input('medida_pierna_izq', sql.Decimal(5, 2), measurementData.medida_pierna_izq || null)
+      .input('medida_pierna_der', sql.Decimal(5, 2), measurementData.medida_pierna_der || null)
+      .input('medida_cintura', sql.Decimal(5, 2), measurementData.medida_cintura || null)
+      .input('medida_cadera', sql.Decimal(5, 2), measurementData.medida_cadera || null)
+      .input('notas', sql.Text, measurementData.notas || null)
+      .query(`
+        INSERT INTO Medidas_Corporales (
+          id_usuario,
+          fecha_registro,
+          peso,
+          altura,
+          porcentaje_grasa,
+          masa_muscular,
+          medida_pecho,
+          medida_brazo_izq,
+          medida_brazo_der,
+          medida_pierna_izq,
+          medida_pierna_der,
+          medida_cintura,
+          medida_cadera,
+          notas
+        )
+        VALUES (
+          @id_usuario,
+          GETDATE(),
+          @peso,
+          @altura,
+          @porcentaje_grasa,
+          @masa_muscular,
+          @medida_pecho,
+          @medida_brazo_izq,
+          @medida_brazo_der,
+          @medida_pierna_izq,
+          @medida_pierna_der,
+          @medida_cintura,
+          @medida_cadera,
+          @notas
+        )
+      `);
+    
+    // Crear notificación para el cliente
+    await pool.request()
+      .input('id_usuario', sql.Int, id_usuario)
+      .input('id_origen', sql.Int, req.user.id)
+      .query(`
+        INSERT INTO Notificaciones (
+          id_usuario,
+          tipo,
+          titulo,
+          mensaje,
+          fecha_creacion,
+          leida,
+          id_origen
+        )
+        VALUES (
+          @id_usuario,
+          'nuevas_medidas',
+          'Medidas físicas actualizadas',
+          'Tu entrenador ha registrado nuevas medidas físicas para ti.',
+          GETDATE(),
+          0,
+          @id_origen
+        )
+      `);
+    
+    res.status(201).json({ message: 'Medidas físicas registradas correctamente' });
+  } catch (error) {
+    console.error('Error al registrar medidas físicas:', error);
+    res.status(500).json({ message: 'Error al registrar medidas físicas' });
+  }
+});
 // Obtener todos los coaches (Admin)
 router.get('/', authMiddleware, adminMiddleware, async (req, res) => {
   try {
@@ -2334,6 +2467,64 @@ router.put('/routine/:routineId/exercises', authMiddleware, verifyCoach, async (
   } catch (error) {
     console.error('Error al actualizar ejercicios de la rutina:', error);
     res.status(500).json({ message: 'Error al actualizar ejercicios de la rutina' });
+  }
+});
+// Obtener medidas físicas de un cliente específico
+router.get('/client-measurements/:id_usuario', authMiddleware, coachMiddleware, async (req, res) => {
+  try {
+    const { id_usuario } = req.params;
+    console.log(`Obteniendo medidas físicas para el cliente con ID: ${id_usuario}`);
+    
+    // Verificar primero si el cliente está asignado a este coach
+    const pool = await connectDB();
+    
+    const clientAssignmentCheck = await pool.request()
+      .input('id_coach', sql.Int, req.user.id_coach)
+      .input('id_usuario', sql.Int, id_usuario)
+      .query(`
+        SELECT id_asignacion 
+        FROM Asignaciones_Coach_Cliente 
+        WHERE id_coach = @id_coach 
+        AND id_usuario = @id_usuario 
+        AND estado = 'activa'
+      `);
+    
+    // Si el cliente no está asignado a este coach, no permitir el acceso
+    if (clientAssignmentCheck.recordset.length === 0) {
+      return res.status(403).json({ message: 'No tienes permiso para ver las medidas de este cliente' });
+    }
+    
+    // Obtener las medidas físicas del cliente, ordenadas por fecha (más recientes primero)
+    const result = await pool.request()
+      .input('id_usuario', sql.Int, id_usuario)
+      .query(`
+        SELECT 
+          id_medida,
+          fecha_registro,
+          peso,
+          altura,
+          porcentaje_grasa,
+          masa_muscular,
+          medida_pecho,
+          medida_brazo_izq,
+          medida_brazo_der,
+          medida_pierna_izq,
+          medida_pierna_der,
+          medida_cintura,
+          medida_cadera,
+          notas
+        FROM 
+          Medidas_Corporales
+        WHERE 
+          id_usuario = @id_usuario
+        ORDER BY 
+          fecha_registro DESC
+      `);
+    
+    res.json(result.recordset);
+  } catch (error) {
+    console.error('Error al obtener medidas físicas del cliente:', error);
+    res.status(500).json({ message: 'Error al obtener medidas físicas' });
   }
 });
 // In coach.js, replace or update the /assign-routine route
