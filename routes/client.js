@@ -311,4 +311,155 @@ router.post('/request-coach/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// Guardar medidas físicas del cliente
+router.post('/physical-measurements', authMiddleware, clientMiddleware, async (req, res) => {
+  try {
+    console.log('Guardando medidas físicas para usuario ID:', req.user.id);
+    console.log('Datos recibidos:', req.body);
+    
+    const pool = await connectDB();
+    
+    // Insertar los datos en la tabla Medidas_Corporales
+    await pool.request()
+      .input('id_usuario', sql.Int, req.user.id)
+      .input('peso', sql.Decimal(5, 2), req.body.peso || null)
+      .input('altura', sql.Decimal(5, 2), req.body.altura || null)
+      .input('porcentaje_grasa', sql.Decimal(5, 2), req.body.porcentaje_grasa || null)
+      .input('masa_muscular', sql.Decimal(5, 2), req.body.masa_muscular || null)
+      .input('medida_pecho', sql.Decimal(5, 2), req.body.medida_pecho || null)
+      .input('medida_brazo_izq', sql.Decimal(5, 2), req.body.medida_brazo_izq || null)
+      .input('medida_brazo_der', sql.Decimal(5, 2), req.body.medida_brazo_der || null)
+      .input('medida_pierna_izq', sql.Decimal(5, 2), req.body.medida_pierna_izq || null)
+      .input('medida_pierna_der', sql.Decimal(5, 2), req.body.medida_pierna_der || null)
+      .input('medida_cintura', sql.Decimal(5, 2), req.body.medida_cintura || null)
+      .input('medida_cadera', sql.Decimal(5, 2), req.body.medida_cadera || null)
+      .input('notas', sql.Text, req.body.notas || null)
+      .query(`
+        INSERT INTO Medidas_Corporales (
+          id_usuario,
+          fecha_registro,
+          peso,
+          altura,
+          porcentaje_grasa,
+          masa_muscular,
+          medida_pecho,
+          medida_brazo_izq,
+          medida_brazo_der,
+          medida_pierna_izq,
+          medida_pierna_der,
+          medida_cintura,
+          medida_cadera,
+          notas
+        )
+        VALUES (
+          @id_usuario,
+          GETDATE(),
+          @peso,
+          @altura,
+          @porcentaje_grasa,
+          @masa_muscular,
+          @medida_pecho,
+          @medida_brazo_izq,
+          @medida_brazo_der,
+          @medida_pierna_izq,
+          @medida_pierna_der,
+          @medida_cintura,
+          @medida_cadera,
+          @notas
+        )
+      `);
+    
+    // Notificar al entrenador asignado (si existe)
+    // Primero, obtener si el cliente tiene un entrenador asignado
+    const coachResult = await pool.request()
+      .input('id_usuario', sql.Int, req.user.id)
+      .query(`
+        SELECT 
+          c.id_coach, 
+          c.id_usuario AS id_usuario_coach
+        FROM 
+          Asignaciones_Coach_Cliente a
+        JOIN 
+          Coaches c ON a.id_coach = c.id_coach
+        WHERE 
+          a.id_usuario = @id_usuario AND a.estado = 'activa'
+      `);
+    
+    // Si tiene entrenador, crear notificación
+    if (coachResult.recordset.length > 0) {
+      const coachUserId = coachResult.recordset[0].id_usuario_coach;
+      
+      await pool.request()
+        .input('id_usuario', sql.Int, coachUserId)
+        .input('id_origen', sql.Int, req.user.id)
+        .query(`
+          INSERT INTO Notificaciones (
+            id_usuario,
+            tipo,
+            titulo,
+            mensaje,
+            fecha_creacion,
+            leida,
+            id_origen
+          )
+          VALUES (
+            @id_usuario,
+            'nuevas_medidas',
+            'Nuevas medidas físicas registradas',
+            'Tu cliente ha registrado nuevas medidas corporales. Revisa su progreso.',
+            GETDATE(),
+            0,
+            @id_origen
+          )
+        `);
+    }
+    
+    res.status(201).json({ message: 'Medidas físicas guardadas correctamente' });
+  } catch (error) {
+    console.error('Error al guardar medidas físicas:', error);
+    res.status(500).json({ message: 'Error al guardar medidas físicas' });
+  }
+});
+
+// Obtener medidas físicas del cliente
+router.get('/physical-measurements', authMiddleware, clientMiddleware, async (req, res) => {
+  try {
+    console.log('Obteniendo medidas físicas para usuario ID:', req.user.id);
+    
+    const pool = await connectDB();
+    
+    // Obtener medidas físicas ordenadas por fecha (más recientes primero)
+    const result = await pool.request()
+      .input('id_usuario', sql.Int, req.user.id)
+      .query(`
+        SELECT 
+          id_medida,
+          fecha_registro,
+          peso,
+          altura,
+          porcentaje_grasa,
+          masa_muscular,
+          medida_pecho,
+          medida_brazo_izq,
+          medida_brazo_der,
+          medida_pierna_izq,
+          medida_pierna_der,
+          medida_cintura,
+          medida_cadera,
+          notas
+        FROM 
+          Medidas_Corporales
+        WHERE 
+          id_usuario = @id_usuario
+        ORDER BY 
+          fecha_registro DESC
+      `);
+    
+    console.log('Medidas encontradas:', result.recordset.length);
+    res.json(result.recordset);
+  } catch (error) {
+    console.error('Error al obtener medidas físicas:', error);
+    res.status(500).json({ message: 'Error al obtener medidas físicas' });
+  }
+});
 module.exports = router;
