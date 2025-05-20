@@ -2241,7 +2241,101 @@ router.delete('/routine/:routineId', authMiddleware, verifyCoach, async (req, re
     res.status(500).json({ message: 'Error al eliminar la rutina' });
   }
 });
-
+// Update exercises in a routine
+router.put('/routine/:routineId/exercises', authMiddleware, verifyCoach, async (req, res) => {
+  try {
+    const { routineId } = req.params;
+    const { exercises } = req.body;
+    
+    if (!exercises || !Array.isArray(exercises) || exercises.length === 0) {
+      return res.status(400).json({ message: 'Es necesario incluir al menos un ejercicio' });
+    }
+    
+    console.log('==== Actualizando ejercicios de rutina ====');
+    console.log('ID de rutina:', routineId);
+    console.log('Número de ejercicios:', exercises.length);
+    
+    const pool = await connectDB();
+    
+    // Obtener el id_coach del usuario actual
+    const coachId = await getCoachIdFromUserId(req.user.id);
+    
+    // Verificar que la rutina pertenece a este coach
+    const routineCheckResult = await pool.request()
+      .input('routineId', sql.Int, routineId)
+      .input('coachId', sql.Int, coachId)
+      .query(`
+        SELECT id_rutina
+        FROM Rutinas
+        WHERE id_rutina = @routineId AND id_coach = @coachId
+      `);
+    
+    if (routineCheckResult.recordset.length === 0) {
+      return res.status(404).json({ message: 'Rutina no encontrada o no tienes acceso a ella' });
+    }
+    
+    // Iniciar una transacción para asegurarnos de que todas las operaciones se completan correctamente
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    
+    try {
+      // 1. Eliminar ejercicios existentes de la rutina
+      await new sql.Request(transaction)
+        .input('routineId', sql.Int, routineId)
+        .query(`
+          DELETE FROM Detalles_Rutina
+          WHERE id_rutina = @routineId
+        `);
+      
+      // 2. Insertar los nuevos ejercicios
+      for (const exercise of exercises) {
+        await new sql.Request(transaction)
+          .input('routineId', sql.Int, routineId)
+          .input('exerciseId', sql.Int, exercise.id_ejercicio)
+          .input('orden', sql.Int, exercise.orden)
+          .input('series', sql.Int, exercise.series)
+          .input('repeticiones', sql.NVarChar, exercise.repeticiones)
+          .input('descansoSegundos', sql.Int, exercise.descanso_segundos)
+          .input('notas', sql.NVarChar, exercise.notas || null)
+          .query(`
+            INSERT INTO Detalles_Rutina (
+              id_rutina,
+              id_ejercicio,
+              orden,
+              series,
+              repeticiones,
+              descanso_segundos,
+              notas
+            )
+            VALUES (
+              @routineId,
+              @exerciseId,
+              @orden,
+              @series,
+              @repeticiones,
+              @descansoSegundos,
+              @notas
+            )
+          `);
+      }
+      
+      // 3. Confirmar transacción
+      await transaction.commit();
+      
+      res.json({ 
+        message: 'Ejercicios actualizados correctamente',
+        count: exercises.length
+      });
+    } catch (error) {
+      // Si hay error, hacer rollback
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error al actualizar ejercicios de la rutina:', error);
+    res.status(500).json({ message: 'Error al actualizar ejercicios de la rutina' });
+  }
+});
 // In coach.js, replace or update the /assign-routine route
 router.post('/assign-routine', authMiddleware, verifyCoach, async (req, res) => {
   try {
