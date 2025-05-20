@@ -372,7 +372,7 @@ router.post('/routine', auth, verifyCoach, async (req, res) => {
 //       return res.status(400).json({ message: 'ID de rutina y cliente son requeridos' });
 //     }
 // En server/routes/routines.js o donde tengas el endpoint
-router.post('/assign-routine-with-days', authMiddleware, async (req, res) => {
+router.post('/assign-routine-with-days', auth, async (req, res) => {
   const { clientId, routineId, trainingDays, startDate, endDate } = req.body;
 
   // Validar datos de entrada
