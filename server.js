@@ -1,121 +1,4 @@
 
-// // // server/server.js - Archivo principal del servidor
-// // const express = require('express');
-// // const cors = require('cors');
-// // require('dotenv').config();
-// // const { connectDB } = require('./config/db');
-
-// // // Importar rutas
-// // const authRoutes = require('./routes/auth');
-// // const coachRoutes = require('./routes/coach');
-// // const clientRoutes = require('./routes/client');
-// // const adminRoutes = require('./routes/admin'); // Añadir esta línea
-// // // Importar las rutas de membresía para clientes
-// // const clientMembresiasRoutes = require('./routes/clientMembresiasRoutes');
-
-// // // Inicializar app
-// // const app = express();
-// // const PORT = process.env.PORT || 5000;
-
-// // // Middleware
-// // // Middleware para CORS
-// // app.use(express.json());
-// // app.use(express.urlencoded({ extended: true })); // Añade esto también
-
-// // app.use(cors({
-// //   origin: [
-// //     'http://localhost:5173',  // Para desarrollo local
-// //     'https://frontend-e7n0.onrender.com'  // Tu frontend en Render
-// //   ],
-// //   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-// //   allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization']
-// // }));
-// // // Probar conexión a la base de datos
-// // connectDB()
-// //   .then(() => console.log('Conexión a la base de datos establecida'))
-// //   .catch(err => console.error('Error de conexión a la base de datos:', err));
-
-
-// // // Rutas
-// // app.use('/api/auth', authRoutes);
-// // app.use('/api/coach', coachRoutes);
-// // app.use('/api/client', clientRoutes);
-// // app.use('/api/admin', adminRoutes); // Añadir esta línea
-// // app.use('/api', clientMembresiasRoutes);
-
-// // // Ruta de prueba
-// // app.get('/api/test', (req, res) => {
-// //   res.json({ message: 'API del sistema de gimnasio funcionando correctamente' });
-// // });
-
-// // // Iniciar servidor
-// // app.listen(PORT, () => {
-// //   console.log(`Servidor ejecutándose en el puerto ${PORT}`);
-// // });
-
-
-// // server/server.js - Archivo principal del servidor
-// const express = require('express');
-// const cors = require('cors');
-// require('dotenv').config();
-// const { connectDB } = require('./config/db');
-
-// // Importar rutas
-// const authRoutes = require('./routes/auth');
-// const coachRoutes = require('./routes/coach');
-// const clientRoutes = require('./routes/client');
-// const adminRoutes = require('./routes/admin');
-// const clientMembresiasRoutes = require('./routes/clientMembresiasRoutes');
-
-// // Inicializar app
-// const app = express();
-// const PORT = process.env.PORT || 5000;
-
-// // Configuración de CORS más permisiva para depuración
-// app.use(cors({
-//   origin: ['http://localhost:5173', 'https://frontend-e7n0.onrender.com'],
-//   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-//   allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization'],
-//   credentials: true // Importante si usas cookies
-// }));
-
-// // Middleware para parsear JSON y URL-encoded (ANTES de las rutas)
-// app.use(express.json());
-// app.use(express.urlencoded({ extended: true }));
-
-// // Ruta de prueba para debugging
-// app.post('/api/test-body', (req, res) => {
-//   console.log('Test body - Headers:', req.headers);
-//   console.log('Test body - Body completo:', req.body);
-//   res.json({ 
-//     receivedBody: req.body,
-//     hasBody: !!req.body,
-//     contentType: req.headers['content-type']
-//   });
-// });
-
-// // Probar conexión a la base de datos
-// connectDB()
-//   .then(() => console.log('Conexión a la base de datos establecida'))
-//   .catch(err => console.error('Error de conexión a la base de datos:', err));
-
-// // Rutas
-// app.use('/api/auth', authRoutes);
-// app.use('/api/coach', coachRoutes);
-// app.use('/api/client', clientRoutes);
-// app.use('/api/admin', adminRoutes);
-// app.use('/api', clientMembresiasRoutes);
-
-// // Ruta de prueba
-// app.get('/api/test', (req, res) => {
-//   res.json({ message: 'API del sistema de gimnasio funcionando correctamente' });
-// });
-
-// // Iniciar servidor
-// app.listen(PORT, () => {
-//   console.log(`Servidor ejecutándose en el puerto ${PORT}`);
-// });
-
 // server/server.js - Archivo principal del servidor
 const express = require('express');
 const cors = require('cors');
@@ -129,7 +12,8 @@ const coachRoutes = require('./routes/coach');
 const clientRoutes = require('./routes/client');
 const adminRoutes = require('./routes/admin');
 const clientMembresiasRoutes = require('./routes/clientMembresiasRoutes');
-
+const coachRoutinesRoutes = require('./routes/routines');
+const clientRoutinesRoutes = require('./routes/clientRoutines');
 // Inicializar app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -276,7 +160,9 @@ app.use('/api/coach', coachRoutes);
 app.use('/api/client', clientRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', clientMembresiasRoutes);
-
+// Y luego registra las rutas
+app.use('/api/coach', coachRoutinesRoutes);
+app.use('/api/client', clientRoutinesRoutes);
 // Ruta de prueba
 app.get('/api/test', (req, res) => {
   res.json({ 
@@ -309,4 +195,17 @@ app.listen(PORT, () => {
   console.log(`Servidor ejecutándose en el puerto ${PORT}`);
   console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
   console.log(`URL del frontend: ${process.env.FRONTEND_URL || 'No configurado'}`);
+});
+
+// Middleware para loggear solicitudes
+app.use((req, res, next) => {
+  if (req.path.includes('assign-routine')) {
+    console.log('Solicitud a assign-routine:', {
+      method: req.method,
+      path: req.path,
+      body: req.body,
+      headers: req.headers
+    });
+  }
+  next();
 });
