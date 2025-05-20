@@ -169,7 +169,7 @@ router.get('/routine/:routineId', auth, verifyClient, async (req, res) => {
     res.status(500).json({ message: 'Error al obtener detalles de la rutina' });
   }
 });
-router.get('/active-routine', authMiddleware, async (req, res) => {
+router.get('/active-routine', auth, async (req, res) => {
     try {
         const pool = await connectDB();
         const userId = req.user.id;
@@ -248,7 +248,7 @@ router.get('/active-routine', authMiddleware, async (req, res) => {
  * @desc    Obtiene los días de entrenamiento para una asignación específica
  * @access  Private (Client)
  */
-router.get('/routine-days/:assignmentId', authMiddleware, async (req, res) => {
+router.get('/routine-days/:assignmentId', auth, async (req, res) => {
     try {
         const pool = await connectDB();
         const userId = req.user.id;
@@ -333,7 +333,7 @@ router.get('/routine-days/:assignmentId', authMiddleware, async (req, res) => {
  * @desc    Obtiene los ejercicios de una rutina específica
  * @access  Private (Client)
  */
-router.get('/routine-exercises/:routineId', authMiddleware, async (req, res) => {
+router.get('/routine-exercises/:routineId', auth, async (req, res) => {
     try {
         const pool = await connectDB();
         const userId = req.user.id;
