@@ -242,23 +242,145 @@ router.get('/routine/:routineId', auth, verifyClient, async (req, res) => {
 //         });
 //     }
 // });
-// En clientRoutines.js, modificar el endpoint active-routine
+// // En clientRoutines.js, modificar el endpoint active-routine
+// router.get('/active-routine', auth, async (req, res) => {
+//     try {
+//         const pool = await connectDB();
+//         const userId = req.user.id;
+//         const { day } = req.query; // Opcional: día específico que se quiere consultar
+
+//         // Obtener el día de la semana actual si no se proporciona un día específico
+//         let currentDay;
+//         if (day) {
+//             currentDay = day.toLowerCase();
+//         } else {
+//             const daysOfWeek = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+//             currentDay = daysOfWeek[new Date().getDay()];
+//         }
+
+//         console.log(`Buscando rutina para el día: ${currentDay}`);
+
+//         // Verificar si el usuario es un cliente
+//         const userCheck = await pool.request()
+//             .input('userId', sql.Int, userId)
+//             .query(`
+//                 SELECT tipo_usuario 
+//                 FROM Usuarios 
+//                 WHERE id_usuario = @userId
+//             `);
+            
+//         if (userCheck.recordset.length === 0 || userCheck.recordset[0].tipo_usuario !== 'cliente') {
+//             return res.status(403).json({ 
+//                 success: false, 
+//                 message: 'No autorizado. Solo los clientes pueden acceder a esta información' 
+//             });
+//         }
+        
+//         // Obtener la rutina activa del cliente para el día específico
+//         const result = await pool.request()
+//             .input('userId', sql.Int, userId)
+//             .input('currentDay', sql.NVarChar, currentDay)
+//             .query(`
+//                 SELECT 
+//                     ar.id_asignacion_rutina,
+//                     ar.id_rutina,
+//                     r.nombre AS nombre_rutina,
+//                     r.descripcion,
+//                     r.objetivo,
+//                     r.nivel_dificultad,
+//                     r.duracion_estimada,
+//                     ar.fecha_asignacion,
+//                     ar.fecha_inicio,
+//                     ar.fecha_fin,
+//                     ar.estado,
+//                     c.id_coach,
+//                     u.nombre AS nombre_coach
+//                 FROM 
+//                     Asignaciones_Rutina ar
+//                 JOIN 
+//                     Rutinas r ON ar.id_rutina = r.id_rutina
+//                 JOIN 
+//                     Coaches c ON r.id_coach = c.id_coach
+//                 JOIN 
+//                     Usuarios u ON c.id_usuario = u.id_usuario
+//                 JOIN 
+//                     Dias_Entrenamiento de ON ar.id_asignacion_rutina = de.id_asignacion_rutina
+//                 WHERE 
+//                     ar.id_usuario = @userId 
+//                     AND ar.estado = 'activa'
+//                     AND de.dia_semana = @currentDay
+//             `);
+            
+//         if (result.recordset.length === 0) {
+//             // Si no hay rutina para el día específico, devolver todas las rutinas activas
+//             const allRoutinesResult = await pool.request()
+//                 .input('userId', sql.Int, userId)
+//                 .query(`
+//                     SELECT 
+//                         ar.id_asignacion_rutina,
+//                         ar.id_rutina,
+//                         r.nombre AS nombre_rutina,
+//                         r.descripcion,
+//                         r.objetivo,
+//                         r.nivel_dificultad,
+//                         r.duracion_estimada,
+//                         ar.fecha_asignacion,
+//                         ar.fecha_inicio,
+//                         ar.fecha_fin,
+//                         ar.estado,
+//                         c.id_coach,
+//                         u.nombre AS nombre_coach
+//                     FROM 
+//                         Asignaciones_Rutina ar
+//                     JOIN 
+//                         Rutinas r ON ar.id_rutina = r.id_rutina
+//                     JOIN 
+//                         Coaches c ON r.id_coach = c.id_coach
+//                     JOIN 
+//                         Usuarios u ON c.id_usuario = u.id_usuario
+//                     WHERE 
+//                         ar.id_usuario = @userId AND ar.estado = 'activa'
+//                 `);
+                
+//             if (allRoutinesResult.recordset.length === 0) {
+//                 return res.json({ 
+//                     success: true, 
+//                     message: 'No hay rutina activa asignada',
+//                     data: null
+//                 });
+//             }
+            
+//             // Devolver la primera rutina activa
+//             return res.json({
+//                 success: true,
+//                 data: allRoutinesResult.recordset[0],
+//                 message: 'No hay rutina específica para hoy, mostrando la primera rutina activa'
+//             });
+//         }
+        
+//         res.json({
+//             success: true,
+//             data: result.recordset[0]
+//         });
+        
+//     } catch (error) {
+//         console.error('Error al obtener rutina activa:', error);
+//         res.status(500).json({ 
+//             success: false, 
+//             message: 'Error en el servidor al obtener la rutina activa', 
+//             error: error.message 
+//         });
+//     }
+// });
+
+// En clientRoutines.js
 router.get('/active-routine', auth, async (req, res) => {
     try {
         const pool = await connectDB();
         const userId = req.user.id;
-        const { day } = req.query; // Opcional: día específico que se quiere consultar
-
-        // Obtener el día de la semana actual si no se proporciona un día específico
-        let currentDay;
-        if (day) {
-            currentDay = day.toLowerCase();
-        } else {
-            const daysOfWeek = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-            currentDay = daysOfWeek[new Date().getDay()];
-        }
-
-        console.log(`Buscando rutina para el día: ${currentDay}`);
+        const { day } = req.query; // Día específico que se quiere consultar
+        
+        console.log(`Cliente solicitando rutinas${day ? ' para el día: ' + day : ''}`);
 
         // Verificar si el usuario es un cliente
         const userCheck = await pool.request()
@@ -276,43 +398,57 @@ router.get('/active-routine', auth, async (req, res) => {
             });
         }
         
-        // Obtener la rutina activa del cliente para el día específico
-        const result = await pool.request()
-            .input('userId', sql.Int, userId)
-            .input('currentDay', sql.NVarChar, currentDay)
-            .query(`
-                SELECT 
-                    ar.id_asignacion_rutina,
-                    ar.id_rutina,
-                    r.nombre AS nombre_rutina,
-                    r.descripcion,
-                    r.objetivo,
-                    r.nivel_dificultad,
-                    r.duracion_estimada,
-                    ar.fecha_asignacion,
-                    ar.fecha_inicio,
-                    ar.fecha_fin,
-                    ar.estado,
-                    c.id_coach,
-                    u.nombre AS nombre_coach
-                FROM 
-                    Asignaciones_Rutina ar
-                JOIN 
-                    Rutinas r ON ar.id_rutina = r.id_rutina
-                JOIN 
-                    Coaches c ON r.id_coach = c.id_coach
-                JOIN 
-                    Usuarios u ON c.id_usuario = u.id_usuario
-                JOIN 
-                    Dias_Entrenamiento de ON ar.id_asignacion_rutina = de.id_asignacion_rutina
-                WHERE 
-                    ar.id_usuario = @userId 
-                    AND ar.estado = 'activa'
-                    AND de.dia_semana = @currentDay
-            `);
+        // Si se especifica un día, obtener la rutina para ese día
+        if (day) {
+            const routineResult = await pool.request()
+                .input('userId', sql.Int, userId)
+                .input('day', sql.NVarChar, day)
+                .query(`
+                    SELECT 
+                        ar.id_asignacion_rutina,
+                        ar.id_rutina,
+                        r.nombre AS nombre_rutina,
+                        r.descripcion,
+                        r.objetivo,
+                        r.nivel_dificultad,
+                        r.duracion_estimada,
+                        ar.fecha_asignacion,
+                        ar.fecha_inicio,
+                        ar.fecha_fin,
+                        ar.estado,
+                        c.id_coach,
+                        u.nombre AS nombre_coach
+                    FROM 
+                        Asignaciones_Rutina ar
+                    JOIN 
+                        Rutinas r ON ar.id_rutina = r.id_rutina
+                    JOIN 
+                        Coaches c ON r.id_coach = c.id_coach
+                    JOIN 
+                        Usuarios u ON c.id_usuario = u.id_usuario
+                    JOIN 
+                        Dias_Entrenamiento de ON ar.id_asignacion_rutina = de.id_asignacion_rutina
+                    WHERE 
+                        ar.id_usuario = @userId 
+                        AND ar.estado = 'activa'
+                        AND de.dia_semana = @day
+                `);
+                
+            if (routineResult.recordset.length === 0) {
+                return res.json({ 
+                    success: true, 
+                    message: 'No hay rutina asignada para este día',
+                    data: null
+                });
+            }
             
-        if (result.recordset.length === 0) {
-            // Si no hay rutina para el día específico, devolver todas las rutinas activas
+            return res.json({
+                success: true,
+                data: routineResult.recordset[0]
+            });
+        } 
+        // Si no se especifica un día, obtener TODAS las rutinas activas
+        else {
             const allRoutinesResult = await pool.request()
                 .input('userId', sql.Int, userId)
                 .query(`
@@ -339,29 +475,57 @@ router.get('/active-routine', auth, async (req, res) => {
                     JOIN 
                         Usuarios u ON c.id_usuario = u.id_usuario
                     WHERE 
-                        ar.id_usuario = @userId AND ar.estado = 'activa'
+                        ar.id_usuario = @userId 
+                        AND ar.estado = 'activa'
                 `);
                 
             if (allRoutinesResult.recordset.length === 0) {
                 return res.json({ 
                     success: true, 
-                    message: 'No hay rutina activa asignada',
+                    message: 'No hay rutinas activas asignadas',
                     data: null
                 });
             }
             
-            // Devolver la primera rutina activa
+            // Obtener los días para cada rutina
+            const routinesWithDays = await Promise.all(
+                allRoutinesResult.recordset.map(async (routine) => {
+                    const daysResult = await pool.request()
+                        .input('assignmentId', sql.Int, routine.id_asignacion_rutina)
+                        .query(`
+                            SELECT 
+                                id_dia_entrenamiento,
+                                dia_semana,
+                                hora_inicio,
+                                hora_fin,
+                                notas
+                            FROM 
+                                Dias_Entrenamiento
+                            WHERE 
+                                id_asignacion_rutina = @assignmentId
+                        `);
+                    
+                    return {
+                        ...routine,
+                        dias_entrenamiento: daysResult.recordset
+                    };
+                })
+            );
+            
+            // Determinar la rutina del día actual
+            const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+            const today = days[new Date().getDay()];
+            
+            const todayRoutine = routinesWithDays.find(routine => 
+                routine.dias_entrenamiento.some(day => day.dia_semana.toLowerCase() === today)
+            );
+            
             return res.json({
                 success: true,
-                data: allRoutinesResult.recordset[0],
-                message: 'No hay rutina específica para hoy, mostrando la primera rutina activa'
+                data: todayRoutine || routinesWithDays[0], // Rutina del día actual o la primera
+                all_routines: routinesWithDays // Todas las rutinas con sus días
             });
         }
-        
-        res.json({
-            success: true,
-            data: result.recordset[0]
-        });
         
     } catch (error) {
         console.error('Error al obtener rutina activa:', error);
