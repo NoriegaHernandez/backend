@@ -2670,21 +2670,127 @@ router.get('/client-measurements/:id_usuario', authMiddleware, coachMiddleware, 
     res.status(500).json({ message: 'Error al obtener medidas físicas' });
   }
 });
-// In coach.js, replace or update the /assign-routine route
+// // In coach.js, replace or update the /assign-routine route
+// router.post('/assign-routine', authMiddleware, verifyCoach, async (req, res) => {
+//   try {
+//     console.log('==== Asignando rutina a cliente ====');
+//     console.log('Datos recibidos:', req.body);
+    
+//     const { id_cliente, id_rutina } = req.body;
+    
+//     if (!id_cliente || !id_rutina) {
+//       console.error('Datos incompletos:', { id_cliente, id_rutina });
+//       return res.status(400).json({ message: 'Se requiere ID de usuario y rutina' });
+//     }
+    
+//     console.log('ID de usuario cliente:', id_cliente, typeof id_cliente);
+//     console.log('ID de rutina:', id_rutina, typeof id_rutina);
+    
+//     // Intentar convertir a enteros si vienen como strings
+//     const clientId = typeof id_cliente === 'string' ? parseInt(id_cliente, 10) : id_cliente;
+//     const routineId = typeof id_rutina === 'string' ? parseInt(id_rutina, 10) : id_rutina;
+    
+//     // Verificar que son números válidos después de conversión
+//     if (isNaN(clientId) || isNaN(routineId)) {
+//       console.error('IDs inválidos después de la conversión:', { clientId, routineId });
+//       return res.status(400).json({ message: 'IDs deben ser valores numéricos válidos' });
+//     }
+    
+//     const pool = await connectDB();
+    
+//     // Obtener ID del coach
+//     const coachId = await getCoachIdFromUserId(req.user.id);
+    
+//     // Verificar que la rutina pertenece a este coach
+//     const routineResult = await pool.request()
+//       .input('routineId', sql.Int, routineId)
+//       .input('coachId', sql.Int, coachId)
+//       .query(`
+//         SELECT id_rutina
+//         FROM Rutinas
+//         WHERE id_rutina = @routineId AND id_coach = @coachId
+//       `);
+    
+//     if (routineResult.recordset.length === 0) {
+//       return res.status(404).json({ message: 'Rutina no encontrada o no tienes acceso a ella' });
+//     }
+    
+//     // Verificar que el cliente está asignado a este coach
+//     const assignmentResult = await pool.request()
+//       .input('coachId', sql.Int, coachId)
+//       .input('clientId', sql.Int, clientId)
+//       .query(`
+//         SELECT id_asignacion
+//         FROM Asignaciones_Coach_Cliente
+//         WHERE id_coach = @coachId AND id_usuario = @clientId AND estado = 'activa'
+//       `);
+    
+//     if (assignmentResult.recordset.length === 0) {
+//       return res.status(403).json({ 
+//         message: 'Este cliente no está asignado a tu perfil de coach' 
+//       });
+//     }
+    
+//     // Verificar si ya tiene una rutina activa (opcional: podemos desactivar las rutinas previas)
+//     await pool.request()
+//       .input('clientId', sql.Int, clientId)
+//       .query(`
+//         UPDATE Asignaciones_Rutina
+//         SET estado = 'completada'
+//         WHERE id_usuario = @clientId AND estado = 'activa'
+//       `);
+    
+//     // Asignar la rutina al cliente
+//     await pool.request()
+//       .input('id_rutina', sql.Int, routineId)
+//       .input('id_usuario', sql.Int, clientId)
+//       .query(`
+//         INSERT INTO Asignaciones_Rutina (
+//           id_rutina,
+//           id_usuario,
+//           fecha_asignacion,
+//           fecha_inicio,
+//           fecha_fin,
+//           estado,
+//           notas_coach
+//         )
+//         VALUES (
+//           @id_rutina,
+//           @id_usuario,
+//           GETDATE(),
+//           GETDATE(),
+//           NULL,
+//           'activa',
+//           'Rutina asignada desde el panel de coach'
+//         )
+//       `);
+    
+//     res.json({ message: 'Rutina asignada correctamente' });
+    
+//   } catch (error) {
+//     console.error('Error al asignar rutina:', error);
+//     res.status(500).json({ message: 'Error al asignar rutina' });
+//   }
+// });
+
+// Modificar el endpoint de asignación de rutina
 router.post('/assign-routine', authMiddleware, verifyCoach, async (req, res) => {
   try {
     console.log('==== Asignando rutina a cliente ====');
     console.log('Datos recibidos:', req.body);
     
-    const { id_cliente, id_rutina } = req.body;
+    const { id_cliente, id_rutina, dias_entrenamiento } = req.body;
     
-    if (!id_cliente || !id_rutina) {
-      console.error('Datos incompletos:', { id_cliente, id_rutina });
-      return res.status(400).json({ message: 'Se requiere ID de usuario y rutina' });
+    if (!id_cliente || !id_rutina || !dias_entrenamiento || !dias_entrenamiento.length) {
+      console.error('Datos incompletos:', { id_cliente, id_rutina, dias_entrenamiento });
+      return res.status(400).json({ 
+        message: 'Se requiere ID de usuario, rutina y al menos un día de entrenamiento' 
+      });
     }
     
-    console.log('ID de usuario cliente:', id_cliente, typeof id_cliente);
-    console.log('ID de rutina:', id_rutina, typeof id_rutina);
+    console.log('ID de usuario cliente:', id_cliente);
+    console.log('ID de rutina:', id_rutina);
+    console.log('Días de entrenamiento:', dias_entrenamiento);
     
     // Intentar convertir a enteros si vienen como strings
     const clientId = typeof id_cliente === 'string' ? parseInt(id_cliente, 10) : id_cliente;
@@ -2731,41 +2837,111 @@ router.post('/assign-routine', authMiddleware, verifyCoach, async (req, res) => 
       });
     }
     
-    // Verificar si ya tiene una rutina activa (opcional: podemos desactivar las rutinas previas)
-    await pool.request()
-      .input('clientId', sql.Int, clientId)
-      .query(`
-        UPDATE Asignaciones_Rutina
-        SET estado = 'completada'
-        WHERE id_usuario = @clientId AND estado = 'activa'
-      `);
+    // Iniciar transacción
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
     
-    // Asignar la rutina al cliente
-    await pool.request()
-      .input('id_rutina', sql.Int, routineId)
-      .input('id_usuario', sql.Int, clientId)
-      .query(`
-        INSERT INTO Asignaciones_Rutina (
-          id_rutina,
-          id_usuario,
-          fecha_asignacion,
-          fecha_inicio,
-          fecha_fin,
-          estado,
-          notas_coach
-        )
-        VALUES (
-          @id_rutina,
-          @id_usuario,
-          GETDATE(),
-          GETDATE(),
-          NULL,
-          'activa',
-          'Rutina asignada desde el panel de coach'
-        )
-      `);
-    
-    res.json({ message: 'Rutina asignada correctamente' });
+    try {
+      // Para cada día seleccionado, primero verificar si ya existe una asignación para ese día
+      // y desactivarla antes de crear la nueva
+      for (const dia of dias_entrenamiento) {
+        // Desactivar rutinas previas para el mismo día
+        await new sql.Request(transaction)
+          .input('clientId', sql.Int, clientId)
+          .input('dia', sql.NVarChar, dia)
+          .query(`
+            UPDATE Asignaciones_Rutina
+            SET estado = 'completada',
+                fecha_fin = GETDATE()
+            FROM Asignaciones_Rutina ar
+            JOIN Dias_Entrenamiento de ON ar.id_asignacion_rutina = de.id_asignacion_rutina
+            WHERE ar.id_usuario = @clientId 
+              AND ar.estado = 'activa'
+              AND de.dia_semana = @dia
+          `);
+      }
+      
+      // Crear nueva asignación de rutina
+      const insertResult = await new sql.Request(transaction)
+        .input('routineId', sql.Int, routineId)
+        .input('clientId', sql.Int, clientId)
+        .input('fecha_asignacion', sql.DateTime, new Date())
+        .query(`
+          INSERT INTO Asignaciones_Rutina (
+            id_rutina,
+            id_usuario,
+            fecha_asignacion,
+            fecha_inicio,
+            estado,
+            notas_coach
+          )
+          OUTPUT INSERTED.id_asignacion_rutina
+          VALUES (
+            @routineId,
+            @clientId,
+            @fecha_asignacion,
+            @fecha_asignacion,
+            'activa',
+            'Rutina asignada por entrenador'
+          )
+        `);
+      
+      const id_asignacion_rutina = insertResult.recordset[0].id_asignacion_rutina;
+      
+      // Insertar los días de entrenamiento para esta asignación
+      for (const dia of dias_entrenamiento) {
+        await new sql.Request(transaction)
+          .input('id_asignacion_rutina', sql.Int, id_asignacion_rutina)
+          .input('dia_semana', sql.NVarChar, dia)
+          .query(`
+            INSERT INTO Dias_Entrenamiento (
+              id_asignacion_rutina,
+              dia_semana
+            )
+            VALUES (
+              @id_asignacion_rutina,
+              @dia_semana
+            )
+          `);
+      }
+      
+      // Crear notificación para el cliente
+      await new sql.Request(transaction)
+        .input('clientId', sql.Int, clientId)
+        .input('origenId', sql.Int, req.user.id)
+        .input('titulo', sql.NVarChar, 'Nueva rutina asignada')
+        .input('dias', sql.NVarChar, dias_entrenamiento.join(', '))
+        .query(`
+          INSERT INTO Notificaciones (
+            id_usuario,
+            tipo,
+            titulo,
+            mensaje,
+            fecha_creacion,
+            leida,
+            id_origen
+          )
+          VALUES (
+            @clientId,
+            'nueva_rutina',
+            @titulo,
+            'Tu entrenador te ha asignado una nueva rutina para los días: ' + @dias,
+            GETDATE(),
+            0,
+            @origenId
+          )
+        `);
+      
+      await transaction.commit();
+      
+      res.json({ 
+        message: 'Rutina asignada correctamente', 
+        id_asignacion_rutina 
+      });
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
     
   } catch (error) {
     console.error('Error al asignar rutina:', error);
@@ -2844,7 +3020,80 @@ router.get('/routines', authMiddleware, async (req, res) => {
     res.status(500).json({ message: 'Error al obtener rutinas' });
   }
 });
-
+// Añadir a coach.js
+router.get('/assignment/:assignmentId/days', authMiddleware, async (req, res) => {
+  try {
+    const { assignmentId } = req.params;
+    
+    console.log('==== Obteniendo días de entrenamiento ====');
+    console.log('ID de asignación:', assignmentId);
+    
+    const pool = await connectDB();
+    
+    // Obtener el id_coach del usuario actual
+    const coachResult = await pool.request()
+      .input('id_usuario', sql.Int, req.user.id)
+      .query(`
+        SELECT id_coach 
+        FROM Coaches 
+        WHERE id_usuario = @id_usuario
+      `);
+    
+    if (coachResult.recordset.length === 0) {
+      return res.status(404).json({ message: 'Coach no encontrado' });
+    }
+    
+    const coachId = coachResult.recordset[0].id_coach;
+    
+    // Verificar que la asignación pertenece a un cliente de este coach
+    const assignmentCheckResult = await pool.request()
+      .input('id_asignacion_rutina', sql.Int, assignmentId)
+      .input('id_coach', sql.Int, coachId)
+      .query(`
+        SELECT ar.id_asignacion_rutina
+        FROM Asignaciones_Rutina ar
+        JOIN Asignaciones_Coach_Cliente acc ON ar.id_usuario = acc.id_usuario
+        WHERE ar.id_asignacion_rutina = @id_asignacion_rutina 
+        AND acc.id_coach = @id_coach
+        AND acc.estado = 'activa'
+      `);
+    
+    if (assignmentCheckResult.recordset.length === 0) {
+      return res.status(404).json({ message: 'Asignación no encontrada o no tienes acceso a ella' });
+    }
+    
+    // Obtener los días de entrenamiento
+    const daysResult = await pool.request()
+      .input('id_asignacion_rutina', sql.Int, assignmentId)
+      .query(`
+        SELECT 
+          id_dia_entrenamiento,
+          dia_semana,
+          hora_inicio,
+          hora_fin,
+          notas
+        FROM 
+          Dias_Entrenamiento
+        WHERE 
+          id_asignacion_rutina = @id_asignacion_rutina
+        ORDER BY
+          CASE dia_semana
+            WHEN 'lunes' THEN 1
+            WHEN 'martes' THEN 2
+            WHEN 'miércoles' THEN 3
+            WHEN 'jueves' THEN 4
+            WHEN 'viernes' THEN 5
+            WHEN 'sábado' THEN 6
+            WHEN 'domingo' THEN 7
+          END
+      `);
+    
+    res.json(daysResult.recordset);
+  } catch (error) {
+    console.error('Error al obtener días de entrenamiento:', error);
+    res.status(500).json({ message: 'Error al obtener días de entrenamiento' });
+  }
+});
 // Obtener detalles de una rutina específica
 router.get('/routine/:routineId', authMiddleware, async (req, res) => {
   try {
