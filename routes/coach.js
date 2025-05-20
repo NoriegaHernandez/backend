@@ -1593,145 +1593,367 @@ router.get('/routine/:routineId', authMiddleware, verifyCoach, async (req, res) 
   }
 });
 
-// Crear una nueva rutina personalizada
+// // Crear una nueva rutina personalizada
+// router.post('/routine', authMiddleware, verifyCoach, async (req, res) => {
+//   try {
+//     const {
+//       nombre,
+//       descripcion,
+//       objetivo,
+//       nivel_dificultad,
+//       duracion_estimada,
+//       id_cliente,
+//       ejercicios
+//     } = req.body;
+    
+//     // Validar que hay al menos un ejercicio
+//     if (!ejercicios || !Array.isArray(ejercicios) || ejercicios.length === 0) {
+//       return res.status(400).json({ message: 'Debes incluir al menos un ejercicio en la rutina' });
+//     }
+    
+//     const pool = await connectDB();
+    
+//     // Obtener ID del coach
+//     const coachId = await getCoachIdFromUserId(req.user.id);
+    
+//     // Verificar que el cliente está asignado a este coach
+//     const assignmentResult = await pool.request()
+//       .input('coachId', sql.Int, coachId)
+//       .input('clientId', sql.Int, id_cliente)
+//       .query(`
+//         SELECT id_asignacion
+//         FROM Asignaciones_Coach_Cliente
+//         WHERE id_coach = @coachId AND id_usuario = @clientId AND estado = 'activa'
+//       `);
+    
+//     if (assignmentResult.recordset.length === 0) {
+//       return res.status(403).json({ 
+//         message: 'Este cliente no está asignado a tu perfil de coach' 
+//       });
+//     }
+    
+//     // Iniciar transacción
+//     const transaction = new sql.Transaction(pool);
+//     await transaction.begin();
+    
+//     try {
+//       // 1. Insertar la rutina
+//       const routineResult = await new sql.Request(transaction)
+//         .input('coachId', sql.Int, coachId)
+//         .input('nombre', sql.VarChar(100), nombre)
+//         .input('descripcion', sql.Text, descripcion || null)
+//         .input('objetivo', sql.VarChar(100), objetivo || null)
+//         .input('nivel_dificultad', sql.VarChar(20), nivel_dificultad || 'intermedio')
+//         .input('duracion_estimada', sql.Int, duracion_estimada || 60)
+//         .query(`
+//           INSERT INTO Rutinas (
+//             id_coach,
+//             nombre,
+//             descripcion,
+//             objetivo,
+//             nivel_dificultad,
+//             duracion_estimada,
+//             fecha_creacion
+//           )
+//           OUTPUT INSERTED.id_rutina
+//           VALUES (
+//             @coachId,
+//             @nombre,
+//             @descripcion,
+//             @objetivo,
+//             @nivel_dificultad,
+//             @duracion_estimada,
+//             GETDATE()
+//           )
+//         `);
+      
+//       const id_rutina = routineResult.recordset[0].id_rutina;
+      
+//       // 2. Insertar los detalles de la rutina (ejercicios)
+//       for (const ejercicio of ejercicios) {
+//         await new sql.Request(transaction)
+//           .input('id_rutina', sql.Int, id_rutina)
+//           .input('id_ejercicio', sql.Int, ejercicio.id_ejercicio)
+//           .input('orden', sql.Int, ejercicio.orden)
+//           .input('series', sql.Int, ejercicio.series)
+//           .input('repeticiones', sql.VarChar(50), ejercicio.repeticiones)
+//           .input('descanso_segundos', sql.Int, ejercicio.descanso_segundos || 60)
+//           .input('notas', sql.Text, ejercicio.notas || null)
+//           .query(`
+//             INSERT INTO Detalles_Rutina (
+//               id_rutina,
+//               id_ejercicio,
+//               orden,
+//               series,
+//               repeticiones,
+//               descanso_segundos,
+//               notas
+//             )
+//             VALUES (
+//               @id_rutina,
+//               @id_ejercicio,
+//               @orden,
+//               @series,
+//               @repeticiones,
+//               @descanso_segundos,
+//               @notas
+//             )
+//           `);
+//       }
+      
+//       // 3. Asignar la rutina al cliente
+//       await new sql.Request(transaction)
+//         .input('id_rutina', sql.Int, id_rutina)
+//         .input('id_usuario', sql.Int, id_cliente)
+//         .query(`
+//           INSERT INTO Asignaciones_Rutina (
+//             id_rutina,
+//             id_usuario,
+//             fecha_asignacion,
+//             fecha_inicio,
+//             fecha_fin,
+//             estado,
+//             notas_coach
+//           )
+//           VALUES (
+//             @id_rutina,
+//             @id_usuario,
+//             GETDATE(),
+//             GETDATE(),
+//             NULL,
+//             'activa',
+//             'Rutina personalizada asignada'
+//           )
+//         `);
+      
+//       // 4. Commit de la transacción
+//       await transaction.commit();
+      
+//       res.json({ 
+//         message: 'Rutina creada y asignada correctamente',
+//         id_rutina
+//       });
+      
+//     } catch (error) {
+//       // Si hay error, hacer rollback
+//       await transaction.rollback();
+//       throw error;
+//     }
+    
+//   } catch (error) {
+//     console.error('Error al crear rutina personalizada:', error);
+//     res.status(500).json({ message: 'Error al crear rutina personalizada' });
+//   }
+// });
+
+
+// Add this route to routes/coach.js
+// Create a new custom routine
 router.post('/routine', authMiddleware, verifyCoach, async (req, res) => {
   try {
-    const {
-      nombre,
-      descripcion,
-      objetivo,
-      nivel_dificultad,
+    console.log('==== Creando rutina personalizada ====');
+    const { 
+      nombre, 
+      descripcion, 
+      objetivo, 
+      nivel_dificultad, 
       duracion_estimada,
       id_cliente,
-      ejercicios
+      ejercicios 
     } = req.body;
     
-    // Validar que hay al menos un ejercicio
-    if (!ejercicios || !Array.isArray(ejercicios) || ejercicios.length === 0) {
-      return res.status(400).json({ message: 'Debes incluir al menos un ejercicio en la rutina' });
+    // Validaciones básicas
+    if (!nombre) {
+      return res.status(400).json({ message: 'El nombre de la rutina es obligatorio' });
     }
+    
+    if (!ejercicios || !Array.isArray(ejercicios) || ejercicios.length === 0) {
+      return res.status(400).json({ message: 'La rutina debe tener al menos un ejercicio' });
+    }
+    
+    console.log('Datos recibidos:', {
+      nombre,
+      objetivo: objetivo || 'No especificado',
+      nivel: nivel_dificultad || 'intermedio',
+      duracion: duracion_estimada || 60,
+      ejercicios: ejercicios.length
+    });
     
     const pool = await connectDB();
     
-    // Obtener ID del coach
+    // Obtener el id_coach del usuario actual
     const coachId = await getCoachIdFromUserId(req.user.id);
     
-    // Verificar que el cliente está asignado a este coach
-    const assignmentResult = await pool.request()
-      .input('coachId', sql.Int, coachId)
-      .input('clientId', sql.Int, id_cliente)
-      .query(`
-        SELECT id_asignacion
-        FROM Asignaciones_Coach_Cliente
-        WHERE id_coach = @coachId AND id_usuario = @clientId AND estado = 'activa'
-      `);
-    
-    if (assignmentResult.recordset.length === 0) {
-      return res.status(403).json({ 
-        message: 'Este cliente no está asignado a tu perfil de coach' 
-      });
-    }
-    
-    // Iniciar transacción
+    // Crear transacción para asegurar que todo se guarde correctamente
     const transaction = new sql.Transaction(pool);
     await transaction.begin();
     
     try {
-      // 1. Insertar la rutina
-      const routineResult = await new sql.Request(transaction)
-        .input('coachId', sql.Int, coachId)
-        .input('nombre', sql.VarChar(100), nombre)
-        .input('descripcion', sql.Text, descripcion || null)
-        .input('objetivo', sql.VarChar(100), objetivo || null)
-        .input('nivel_dificultad', sql.VarChar(20), nivel_dificultad || 'intermedio')
-        .input('duracion_estimada', sql.Int, duracion_estimada || 60)
-        .query(`
-          INSERT INTO Rutinas (
-            id_coach,
-            nombre,
-            descripcion,
-            objetivo,
-            nivel_dificultad,
-            duracion_estimada,
-            fecha_creacion
-          )
-          OUTPUT INSERTED.id_rutina
-          VALUES (
-            @coachId,
-            @nombre,
-            @descripcion,
-            @objetivo,
-            @nivel_dificultad,
-            @duracion_estimada,
-            GETDATE()
-          )
-        `);
+      // 1. Crear la rutina principal
+      const rutineRequest = new sql.Request(transaction);
+      rutineRequest.input('id_coach', sql.Int, coachId);
+      rutineRequest.input('nombre', sql.NVarChar, nombre);
+      rutineRequest.input('descripcion', sql.NVarChar, descripcion || null);
+      rutineRequest.input('objetivo', sql.NVarChar, objetivo || null);
+      rutineRequest.input('nivel_dificultad', sql.NVarChar, nivel_dificultad || 'intermedio');
+      rutineRequest.input('duracion_estimada', sql.Int, duracion_estimada || 60);
+      rutineRequest.input('es_personalizada', sql.Bit, id_cliente ? 1 : 0);
+      rutineRequest.input('id_cliente_destino', sql.Int, id_cliente || null);
       
-      const id_rutina = routineResult.recordset[0].id_rutina;
+      const rutineResult = await rutineRequest.query(`
+        INSERT INTO Rutinas (
+          id_coach,
+          nombre,
+          descripcion,
+          objetivo,
+          nivel_dificultad,
+          duracion_estimada,
+          fecha_creacion,
+          es_personalizada,
+          id_cliente_destino
+        )
+        VALUES (
+          @id_coach,
+          @nombre,
+          @descripcion,
+          @objetivo,
+          @nivel_dificultad,
+          @duracion_estimada,
+          GETDATE(),
+          @es_personalizada,
+          @id_cliente_destino
+        );
+        
+        SELECT SCOPE_IDENTITY() AS id_rutina;
+      `);
       
-      // 2. Insertar los detalles de la rutina (ejercicios)
+      const routineId = rutineResult.recordset[0].id_rutina;
+      console.log('Rutina creada, ID:', routineId);
+      
+      // 2. Insertar los ejercicios de la rutina
       for (const ejercicio of ejercicios) {
-        await new sql.Request(transaction)
-          .input('id_rutina', sql.Int, id_rutina)
-          .input('id_ejercicio', sql.Int, ejercicio.id_ejercicio)
-          .input('orden', sql.Int, ejercicio.orden)
-          .input('series', sql.Int, ejercicio.series)
-          .input('repeticiones', sql.VarChar(50), ejercicio.repeticiones)
-          .input('descanso_segundos', sql.Int, ejercicio.descanso_segundos || 60)
-          .input('notas', sql.Text, ejercicio.notas || null)
-          .query(`
-            INSERT INTO Detalles_Rutina (
-              id_rutina,
-              id_ejercicio,
-              orden,
-              series,
-              repeticiones,
-              descanso_segundos,
-              notas
-            )
-            VALUES (
-              @id_rutina,
-              @id_ejercicio,
-              @orden,
-              @series,
-              @repeticiones,
-              @descanso_segundos,
-              @notas
-            )
-          `);
-      }
-      
-      // 3. Asignar la rutina al cliente
-      await new sql.Request(transaction)
-        .input('id_rutina', sql.Int, id_rutina)
-        .input('id_usuario', sql.Int, id_cliente)
-        .query(`
-          INSERT INTO Asignaciones_Rutina (
+        const ejercicioRequest = new sql.Request(transaction);
+        ejercicioRequest.input('id_rutina', sql.Int, routineId);
+        ejercicioRequest.input('id_ejercicio', sql.Int, ejercicio.id_ejercicio);
+        ejercicioRequest.input('orden', sql.Int, ejercicio.orden || 1);
+        ejercicioRequest.input('series', sql.Int, ejercicio.series || 3);
+        ejercicioRequest.input('repeticiones', sql.NVarChar, ejercicio.repeticiones || '12');
+        ejercicioRequest.input('descanso_segundos', sql.Int, ejercicio.descanso_segundos || 60);
+        ejercicioRequest.input('notas', sql.NVarChar, ejercicio.notas || null);
+        
+        await ejercicioRequest.query(`
+          INSERT INTO Detalles_Rutina (
             id_rutina,
-            id_usuario,
-            fecha_asignacion,
-            fecha_inicio,
-            fecha_fin,
-            estado,
-            notas_coach
+            id_ejercicio,
+            orden,
+            series,
+            repeticiones,
+            descanso_segundos,
+            notas
           )
           VALUES (
             @id_rutina,
-            @id_usuario,
-            GETDATE(),
-            GETDATE(),
-            NULL,
-            'activa',
-            'Rutina personalizada asignada'
-          )
+            @id_ejercicio,
+            @orden,
+            @series,
+            @repeticiones,
+            @descanso_segundos,
+            @notas
+          );
         `);
+      }
       
-      // 4. Commit de la transacción
+      // 3. Si hay un cliente específico, asignar la rutina automáticamente
+      if (id_cliente) {
+        // Primero verificar que el cliente está asignado a este coach
+        const clientCheckRequest = new sql.Request(transaction);
+        clientCheckRequest.input('id_coach', sql.Int, coachId);
+        clientCheckRequest.input('id_cliente', sql.Int, id_cliente);
+        
+        const clientCheckResult = await clientCheckRequest.query(`
+          SELECT id_asignacion 
+          FROM Asignaciones_Coach_Cliente
+          WHERE id_coach = @id_coach AND id_usuario = @id_cliente AND estado = 'activa'
+        `);
+        
+        if (clientCheckResult.recordset.length > 0) {
+          // El cliente está asignado, desactivar rutinas anteriores
+          const deactivateRequest = new sql.Request(transaction);
+          deactivateRequest.input('id_cliente', sql.Int, id_cliente);
+          
+          await deactivateRequest.query(`
+            UPDATE Asignaciones_Rutina
+            SET estado = 'completada'
+            WHERE id_usuario = @id_cliente AND estado = 'activa'
+          `);
+          
+          // Asignar la nueva rutina
+          const assignRequest = new sql.Request(transaction);
+          assignRequest.input('id_rutina', sql.Int, routineId);
+          assignRequest.input('id_cliente', sql.Int, id_cliente);
+          
+          await assignRequest.query(`
+            INSERT INTO Asignaciones_Rutina (
+              id_rutina,
+              id_usuario,
+              fecha_asignacion,
+              fecha_inicio,
+              fecha_fin,
+              estado,
+              notas_coach
+            )
+            VALUES (
+              @id_rutina,
+              @id_cliente,
+              GETDATE(),
+              GETDATE(),
+              NULL,
+              'activa',
+              'Rutina personalizada asignada automáticamente'
+            )
+          `);
+          
+          console.log('Rutina asignada al cliente ID:', id_cliente);
+          
+          // Opcionalmente, crear una notificación para el cliente
+          const notifyRequest = new sql.Request(transaction);
+          notifyRequest.input('id_cliente', sql.Int, id_cliente);
+          notifyRequest.input('id_origen', sql.Int, req.user.id);
+          notifyRequest.input('titulo', sql.NVarChar, 'Nueva rutina personalizada');
+          notifyRequest.input('mensaje', sql.NVarChar, `Tu entrenador ha creado una nueva rutina personalizada para ti: ${nombre}`);
+          
+          await notifyRequest.query(`
+            INSERT INTO Notificaciones (
+              id_usuario,
+              tipo,
+              titulo,
+              mensaje,
+              fecha_creacion,
+              leida,
+              id_origen
+            )
+            VALUES (
+              @id_cliente,
+              'nueva_rutina',
+              @titulo,
+              @mensaje,
+              GETDATE(),
+              0,
+              @id_origen
+            )
+          `);
+        }
+      }
+      
+      // Confirmar transacción
       await transaction.commit();
       
-      res.json({ 
-        message: 'Rutina creada y asignada correctamente',
-        id_rutina
+      // Responder con éxito
+      res.status(201).json({
+        message: 'Rutina creada exitosamente',
+        id_rutina: routineId,
+        nombre: nombre,
+        asignada: id_cliente ? true : false
       });
       
     } catch (error) {
@@ -1742,7 +1964,10 @@ router.post('/routine', authMiddleware, verifyCoach, async (req, res) => {
     
   } catch (error) {
     console.error('Error al crear rutina personalizada:', error);
-    res.status(500).json({ message: 'Error al crear rutina personalizada' });
+    res.status(500).json({ 
+      message: 'Error al crear rutina personalizada', 
+      error: error.message 
+    });
   }
 });
 
