@@ -1971,6 +1971,277 @@ router.post('/routine', authMiddleware, verifyCoach, async (req, res) => {
   }
 });
 
+// Get details of a specific routine
+router.get('/routine/:routineId', authMiddleware, verifyCoach, async (req, res) => {
+  try {
+    const { routineId } = req.params;
+    
+    console.log('==== Obteniendo detalles de rutina ====');
+    console.log('ID de rutina:', routineId);
+    
+    const pool = await connectDB();
+    
+    // Obtener el id_coach del usuario actual
+    const coachId = await getCoachIdFromUserId(req.user.id);
+    
+    // Verificar que la rutina pertenece a este coach
+    const routineResult = await pool.request()
+      .input('routineId', sql.Int, routineId)
+      .input('coachId', sql.Int, coachId)
+      .query(`
+        SELECT 
+          r.id_rutina,
+          r.nombre,
+          r.descripcion,
+          r.objetivo,
+          r.nivel_dificultad,
+          r.duracion_estimada,
+          r.fecha_creacion,
+          r.es_personalizada,
+          r.id_cliente_destino
+        FROM 
+          Rutinas r
+        WHERE 
+          r.id_rutina = @routineId AND r.id_coach = @coachId
+      `);
+    
+    if (routineResult.recordset.length === 0) {
+      return res.status(404).json({ message: 'Rutina no encontrada o no tienes acceso a ella' });
+    }
+    
+    const routine = routineResult.recordset[0];
+    
+    // Obtener los ejercicios de la rutina
+    const exercisesResult = await pool.request()
+      .input('routineId', sql.Int, routineId)
+      .query(`
+        SELECT 
+          dr.id_detalle,
+          dr.id_ejercicio,
+          e.nombre,
+          e.descripcion AS ejercicio_descripcion,
+          e.grupos_musculares,
+          e.imagen_url,
+          dr.series,
+          dr.repeticiones,
+          dr.descanso_segundos,
+          dr.orden,
+          dr.notas
+        FROM 
+          Detalles_Rutina dr
+        JOIN 
+          Ejercicios e ON dr.id_ejercicio = e.id_ejercicio
+        WHERE 
+          dr.id_rutina = @routineId
+        ORDER BY 
+          dr.orden
+      `);
+    
+    routine.ejercicios = exercisesResult.recordset;
+    
+    res.json(routine);
+  } catch (error) {
+    console.error('Error al obtener detalles de la rutina:', error);
+    res.status(500).json({ message: 'Error al obtener detalles de la rutina' });
+  }
+});
+
+// Get clients who have this routine assigned
+router.get('/routine/:routineId/assignments', authMiddleware, verifyCoach, async (req, res) => {
+  try {
+    const { routineId } = req.params;
+    
+    console.log('==== Obteniendo asignaciones de rutina ====');
+    console.log('ID de rutina:', routineId);
+    
+    const pool = await connectDB();
+    
+    // Obtener el id_coach del usuario actual
+    const coachId = await getCoachIdFromUserId(req.user.id);
+    
+    // Verificar que la rutina pertenece a este coach
+    const routineCheckResult = await pool.request()
+      .input('routineId', sql.Int, routineId)
+      .input('coachId', sql.Int, coachId)
+      .query(`
+        SELECT id_rutina
+        FROM Rutinas
+        WHERE id_rutina = @routineId AND id_coach = @coachId
+      `);
+    
+    if (routineCheckResult.recordset.length === 0) {
+      return res.status(404).json({ message: 'Rutina no encontrada o no tienes acceso a ella' });
+    }
+    
+    // Obtener los clientes asignados a esta rutina
+    const assignmentsResult = await pool.request()
+      .input('routineId', sql.Int, routineId)
+      .query(`
+        SELECT 
+          ar.id_asignacion_rutina,
+          u.id_usuario,
+          u.nombre,
+          u.email,
+          ar.fecha_asignacion,
+          ar.estado
+        FROM 
+          Asignaciones_Rutina ar
+        JOIN 
+          Usuarios u ON ar.id_usuario = u.id_usuario
+        JOIN
+          Asignaciones_Coach_Cliente acc ON u.id_usuario = acc.id_usuario
+        WHERE 
+          ar.id_rutina = @routineId AND
+          acc.id_coach = @coachId AND
+          acc.estado = 'activa'
+        ORDER BY
+          ar.fecha_asignacion DESC
+      `);
+    
+    res.json(assignmentsResult.recordset);
+  } catch (error) {
+    console.error('Error al obtener asignaciones de la rutina:', error);
+    res.status(500).json({ message: 'Error al obtener asignaciones de la rutina' });
+  }
+});
+
+// Update a routine
+router.put('/routine/:routineId', authMiddleware, verifyCoach, async (req, res) => {
+  try {
+    const { routineId } = req.params;
+    const { 
+      nombre, 
+      descripcion, 
+      objetivo, 
+      nivel_dificultad, 
+      duracion_estimada 
+    } = req.body;
+    
+    if (!nombre) {
+      return res.status(400).json({ message: 'El nombre de la rutina es obligatorio' });
+    }
+    
+    console.log('==== Actualizando rutina ====');
+    console.log('ID de rutina:', routineId);
+    
+    const pool = await connectDB();
+    
+    // Obtener el id_coach del usuario actual
+    const coachId = await getCoachIdFromUserId(req.user.id);
+    
+    // Verificar que la rutina pertenece a este coach
+    const routineCheckResult = await pool.request()
+      .input('routineId', sql.Int, routineId)
+      .input('coachId', sql.Int, coachId)
+      .query(`
+        SELECT id_rutina
+        FROM Rutinas
+        WHERE id_rutina = @routineId AND id_coach = @coachId
+      `);
+    
+    if (routineCheckResult.recordset.length === 0) {
+      return res.status(404).json({ message: 'Rutina no encontrada o no tienes acceso a ella' });
+    }
+    
+    // Actualizar la rutina
+    await pool.request()
+      .input('routineId', sql.Int, routineId)
+      .input('nombre', sql.NVarChar, nombre)
+      .input('descripcion', sql.NVarChar, descripcion || null)
+      .input('objetivo', sql.NVarChar, objetivo || null)
+      .input('nivel_dificultad', sql.NVarChar, nivel_dificultad || 'intermedio')
+      .input('duracion_estimada', sql.Int, duracion_estimada || 45)
+      .query(`
+        UPDATE Rutinas
+        SET 
+          nombre = @nombre,
+          descripcion = @descripcion,
+          objetivo = @objetivo,
+          nivel_dificultad = @nivel_dificultad,
+          duracion_estimada = @duracion_estimada
+        WHERE 
+          id_rutina = @routineId
+      `);
+    
+    res.json({ message: 'Rutina actualizada correctamente' });
+  } catch (error) {
+    console.error('Error al actualizar la rutina:', error);
+    res.status(500).json({ message: 'Error al actualizar la rutina' });
+  }
+});
+
+// Delete a routine
+router.delete('/routine/:routineId', authMiddleware, verifyCoach, async (req, res) => {
+  try {
+    const { routineId } = req.params;
+    
+    console.log('==== Eliminando rutina ====');
+    console.log('ID de rutina:', routineId);
+    
+    const pool = await connectDB();
+    
+    // Obtener el id_coach del usuario actual
+    const coachId = await getCoachIdFromUserId(req.user.id);
+    
+    // Verificar que la rutina pertenece a este coach
+    const routineCheckResult = await pool.request()
+      .input('routineId', sql.Int, routineId)
+      .input('coachId', sql.Int, coachId)
+      .query(`
+        SELECT id_rutina
+        FROM Rutinas
+        WHERE id_rutina = @routineId AND id_coach = @coachId
+      `);
+    
+    if (routineCheckResult.recordset.length === 0) {
+      return res.status(404).json({ message: 'Rutina no encontrada o no tienes acceso a ella' });
+    }
+    
+    // Iniciar una transacción para asegurarnos de que se eliminan todos los datos relacionados
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    
+    try {
+      // 1. Desactivar las asignaciones activas de esta rutina
+      await new sql.Request(transaction)
+        .input('routineId', sql.Int, routineId)
+        .query(`
+          UPDATE Asignaciones_Rutina
+          SET estado = 'cancelada'
+          WHERE id_rutina = @routineId AND estado = 'activa'
+        `);
+      
+      // 2. Eliminar los detalles de la rutina
+      await new sql.Request(transaction)
+        .input('routineId', sql.Int, routineId)
+        .query(`
+          DELETE FROM Detalles_Rutina
+          WHERE id_rutina = @routineId
+        `);
+      
+      // 3. Eliminar la rutina
+      await new sql.Request(transaction)
+        .input('routineId', sql.Int, routineId)
+        .query(`
+          DELETE FROM Rutinas
+          WHERE id_rutina = @routineId
+        `);
+      
+      // Confirmar transacción
+      await transaction.commit();
+      
+      res.json({ message: 'Rutina eliminada correctamente' });
+    } catch (error) {
+      // Si hay error, hacer rollback
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error al eliminar la rutina:', error);
+    res.status(500).json({ message: 'Error al eliminar la rutina' });
+  }
+});
+
 // In coach.js, replace or update the /assign-routine route
 router.post('/assign-routine', authMiddleware, verifyCoach, async (req, res) => {
   try {
