@@ -480,7 +480,7 @@ router.post('/routine', auth, verifyCoach, async (req, res) => {
 //     });
 //   }
 // });
-router.post('/assign-routine-with-days', authMiddleware, async (req, res) => {
+router.post('/assign-routine-with-days', auth, async (req, res) => {
   const { clientId, routineId, trainingDays, startDate, endDate } = req.body;
 
   // Validar datos de entrada
